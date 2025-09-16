@@ -1,4 +1,4 @@
-# WiFi Auditor Pro v2.0 - MODO ULTRA AGRESIVO 🔥
+# WiFi Auditor Pro v2.0 
 
 [![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -71,7 +71,7 @@ sudo python3 wifi_auditor_pro.py
 sudo python3 wifi_auditor_pro.py --auto
 ```
 
-### **Modo Caza Implacable**
+### **Modo seleccion**
 ```bash
 sudo python3 wifi_auditor_pro.py --hunt --max-targets 3 -v
 ```
