@@ -1,0 +1,102 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# WiFi Auditor specific files
+handshakes/
+*.cap
+*.pcap
+*.pcapng
+*.hccapx
+*.hc22000
+*.csv
+audit_session_*.log
+audit_results_*.json
+*.potfile
+
+# Temporary files
+*.tmp
+*.temp
+scan_*
+replay_*
+*.kismet
+
+# OS specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Wordlists that might be large
+wordlists/rockyou.txt
+wordlists/custom_*.txt
+wordlists/*_large.txt
+
+# Installation logs
+installation.log
+
+# Monitor mode interfaces
+mon*

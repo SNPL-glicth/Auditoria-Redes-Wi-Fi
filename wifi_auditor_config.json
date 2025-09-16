@@ -1,0 +1,160 @@
+{
+    "handshake_timeout": 60,
+    "deauth_packets": 10,
+    "scan_time": 30,
+    "target_encryption": ["WPA", "WPA2", "WPA3", "WPS"],
+    "excluded_networks": [
+        "Guest",
+        "xfinitywifi", 
+        "NETGEAR",
+        "Linksys"
+    ],
+    "min_signal_strength": -70,
+    "auto_crack": true,
+    "verbose": true,
+    "auto_target_selection": false,
+    "max_auto_targets": 5,
+    "hunt_mode": false,
+    
+    "attack_methods": {
+        "wps_attacks": {
+            "enabled": true,
+            "timeout": 600,
+            "pixie_dust": true,
+            "bruteforce_pins": true,
+            "use_reaver": true,
+            "use_bully": true,
+            "custom_pins": ["12345670", "00000000", "11111111"]
+        },
+        
+        "dictionary_attacks": {
+            "enabled": true,
+            "timeout_per_wordlist": 300,
+            "use_aircrack": true,
+            "use_hashcat": true,
+            "use_john": false,
+            "gpu_acceleration": true,
+            "cpu_threads": 0
+        },
+        
+        "bruteforce_attacks": {
+            "enabled": false,
+            "min_length": 8,
+            "max_length": 12,
+            "charset": "?l?u?d",
+            "timeout": 1800
+        }
+    },
+    
+    "wordlists": [
+        {
+            "name": "router_defaults.txt",
+            "priority": 1,
+            "enabled": true,
+            "description": "Passwords por defecto de routers y nombres personalizados"
+        },
+        {
+            "name": "common_passwords.txt",
+            "priority": 2,
+            "enabled": true,
+            "description": "Passwords más comunes y fáciles"
+        },
+        {
+            "name": "latin_patterns.txt",
+            "priority": 3,
+            "enabled": true,
+            "description": "Patrones de passwords latinoamericanos"
+        },
+        {
+            "name": "spanish_passwords.txt",
+            "priority": 4,
+            "enabled": true,
+            "description": "Passwords comunes en español"
+        },
+        {
+            "name": "numeric_passwords.txt",
+            "priority": 5,
+            "enabled": true,
+            "description": "Combinaciones numéricas comunes"
+        },
+        {
+            "name": "darkweb2017-top10000.txt",
+            "priority": 6,
+            "enabled": true,
+            "description": "Top 10000 passwords del dark web"
+        },
+        {
+            "name": "rockyou.txt",
+            "priority": 7,
+            "enabled": true,
+            "description": "Wordlist más popular con 14M+ passwords (lenta pero efectiva)"
+        }
+    ],
+    
+    "output_settings": {
+        "save_logs": true,
+        "log_level": "INFO",
+        "log_file_format": "audit_session_{timestamp}.log",
+        "results_format": "json",
+        "backup_results": true,
+        "compress_captures": false,
+        "export_formats": ["json", "csv", "xml"]
+    },
+    
+    "notification_settings": {
+        "sound_alerts": false,
+        "desktop_notifications": false,
+        "email_notifications": false,
+        "webhook_url": null,
+        "success_sound": "/usr/share/sounds/alsa/Front_Right.wav"
+    },
+    
+    "advanced_settings": {
+        "fake_ap_detection": true,
+        "probe_response_analysis": true,
+        "beacon_analysis": true,
+        "client_tracking": true,
+        "mac_randomization": false,
+        "stealth_mode": false,
+        "anti_detection": {
+            "random_delays": true,
+            "packet_rate_limit": 100,
+            "channel_switching": true,
+            "mac_spoofing": false
+        }
+    },
+    
+    "security_settings": {
+        "encrypt_results": false,
+        "secure_delete": true,
+        "anonymize_logs": false,
+        "vpn_check": false,
+        "tor_routing": false
+    },
+    
+    "database_settings": {
+        "use_database": false,
+        "db_type": "sqlite",
+        "db_file": "audit_results.db",
+        "auto_backup": true,
+        "retention_days": 30
+    },
+    
+    "reporting": {
+        "generate_reports": true,
+        "report_format": "html",
+        "include_screenshots": false,
+        "executive_summary": true,
+        "technical_details": true,
+        "recommendations": true,
+        "template_file": null
+    },
+    
+    "legal_compliance": {
+        "require_authorization": true,
+        "log_authorization": true,
+        "compliance_mode": "professional",
+        "evidence_chain": true,
+        "audit_trail": true
+    }
+}
