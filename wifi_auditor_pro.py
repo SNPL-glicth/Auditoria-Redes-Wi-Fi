@@ -2713,7 +2713,7 @@ class WiFiAuditor:
         # Limitar a 25,000 contraseñas para ser eficiente
         return password_list[:25000]
     
-    def test_password_batch_with_analysis(self, target, handshake_file, password_batch, batch_name):
+    def test_password_batch_with_analysis(self, target, handshake_file, password_batch, batch_name, timeout=300):
         """Probar lote de contraseñas con análisis de respuesta"""
         if not password_batch:
             return None
@@ -2732,7 +2732,7 @@ class WiFiAuditor:
             
             # Ejecutar aircrack-ng con análisis detallado
             crack_cmd = f"aircrack-ng {handshake_file} -w {temp_file}"
-            success, output, error = self.run_command(crack_cmd, timeout=300)
+            success, output, error = self.run_command(crack_cmd, timeout=timeout)
             
             end_time = time.time()
             response_time = end_time - start_time
@@ -2933,58 +2933,83 @@ class WiFiAuditor:
         return None
     
     def parallel_massive_attack(self, target, handshake_file):
-        """Ataque paralelo masivo como último recurso"""
-        self.log("Iniciando ataque paralelo masivo final...", "INFO")
+        """Ataque paralelo masivo como último recurso - Máximo 5 minutos"""
+        self.log("Iniciando ataque paralelo masivo final (Máximo 5 minutos)...", "INFO")
         
-        # Generar múltiples wordlists especializadas
+        # Control de tiempo - Máximo 5 minutos
+        start_time = time.time()
+        max_duration = 300  # 5 minutos en segundos
+        
+        # Generar wordlists más pequeñas y eficientes
         wordlists = {
-            'numeric_heavy': self.generate_numeric_heavy_wordlist(target),
-            'alpha_heavy': self.generate_alpha_heavy_wordlist(target), 
-            'mixed_patterns': self.generate_mixed_pattern_wordlist(target),
-            'regional_specific': self.generate_regional_wordlist(target),
-            'keyboard_patterns': self.generate_keyboard_wordlist(target)
+            'numeric_heavy': self.generate_numeric_heavy_wordlist(target)[:1000],  # Máximo 1000
+            'alpha_heavy': self.generate_alpha_heavy_wordlist(target)[:800],     # Máximo 800
+            'mixed_patterns': self.generate_mixed_pattern_wordlist(target)[:1200], # Máximo 1200
+            'regional_specific': self.generate_regional_wordlist(target)[:1500], # Máximo 1500
+            'keyboard_patterns': self.generate_keyboard_wordlist(target)[:200]   # Máximo 200
         }
         
-        # Calcular total de lotes
+        # Calcular total de lotes (lotes más pequeños para mejor progreso)
+        batch_size = 500  # Lotes más pequeños
         total_batches = 0
         for wordlist in wordlists.values():
-            total_batches += (len(wordlist) + 1999) // 2000  # Redondear hacia arriba
+            total_batches += (len(wordlist) + batch_size - 1) // batch_size
+        
+        self.log(f"Total de contraseñas: {sum(len(wl) for wl in wordlists.values())}, Lotes: {total_batches}", "INFO")
         
         # Inicializar barra de progreso
         progress_bar = ProgressBar(
             total=total_batches,
             prefix="FASE 6 [Paralelo Masivo]",
-            suffix=f"0/{total_batches} lotes | 5 wordlists especializadas",
+            suffix=f"0/{total_batches} lotes | Timeout: 5min",
             length=40
         )
         
         batch_count = 0
         
-        # Ejecutar en paralelo (simulado secuencialmente por simplicidad)
+        # Ejecutar con control de tiempo
         for name, wordlist in wordlists.items():
             if not self.running:
                 progress_bar.finish("Interrumpido por usuario")
                 break
+                
+            # Verificar timeout global
+            elapsed = time.time() - start_time
+            if elapsed >= max_duration:
+                progress_bar.finish(f"Timeout alcanzado ({elapsed:.0f}s) - Fase completada")
+                self.log(f"FASE 6: Timeout de 5 minutos alcanzado - finalizando", "WARNING")
+                break
             
-            # Dividir en lotes grandes para eficiencia
-            for i in range(0, len(wordlist), 2000):
+            # Dividir en lotes pequeños
+            for i in range(0, len(wordlist), batch_size):
                 batch_count += 1
-                batch = wordlist[i:i+2000]
+                batch = wordlist[i:i+batch_size]
+                
+                # Verificar timeout antes de cada lote
+                elapsed = time.time() - start_time
+                remaining_time = max_duration - elapsed
+                
+                if remaining_time <= 0:
+                    progress_bar.finish(f"Timeout alcanzado - {batch_count-1} lotes completados")
+                    self.log(f"FASE 6: Timeout de 5 minutos alcanzado", "WARNING")
+                    return None
                 
                 # Actualizar barra de progreso
                 progress_bar.update(
                     batch_count, 
-                    f"{batch_count}/{total_batches} lotes | Wordlist: {name} ({len(batch)} contraseñas)"
+                    f"{batch_count}/{total_batches} | {name} ({len(batch)}) | {remaining_time:.0f}s restantes"
                 )
                 
+                # Probar lote con timeout reducido
                 password = self.test_password_batch_with_analysis(
-                    target, handshake_file, batch, f"{name}_{i//2000 + 1}"
+                    target, handshake_file, batch, f"{name}_{i//batch_size + 1}", timeout=30
                 )
                 if password:
                     progress_bar.finish(f"CONTRASEÑA ENCONTRADA: {password}")
                     return password
         
-        progress_bar.finish("Ataque paralelo masivo completado")
+        total_elapsed = time.time() - start_time
+        progress_bar.finish(f"Completado en {total_elapsed:.0f}s - {batch_count} lotes probados")
         return None
     
     def load_learned_patterns(self):
@@ -3201,36 +3226,65 @@ class WiFiAuditor:
             return password + '123'
     
     def generate_numeric_heavy_wordlist(self, target):
-        """Generar wordlist con énfasis en números"""
+        """Generar wordlist con énfasis en números - optimizada"""
         passwords = set()
         essid = target['essid']
         
-        # Patrones numéricos pesados
-        for i in range(10000000, 99999999):  # 8 dígitos
-            if len(passwords) >= 5000:  # Limitar
-                break
-            passwords.add(str(i))
+        # Patrones numéricos más focalizados
+        # Años comunes
+        for year in range(1980, 2025):
+            passwords.add(str(year) * 2)  # 19951995
+            passwords.add(f"{year}{year % 100:02d}")  # 199595
         
-        return list(passwords)
+        # Números de teléfono colombianos comunes
+        phone_prefixes = ['300', '301', '310', '311', '320']
+        for prefix in phone_prefixes:
+            for i in range(1000000, 1010000, 1000):  # Cada 1000 números
+                phone = f"{prefix}{str(i)[1:]}"
+                if len(phone) >= 8:
+                    passwords.add(phone)
+        
+        # Patrones numéricos simples
+        simple_numbers = [
+            '12345678', '87654321', '11111111', '22222222', '00000000',
+            '12344321', '98765432', '11223344', '88888888', '99999999'
+        ]
+        passwords.update(simple_numbers)
+        
+        return list(passwords)[:1000]  # Máximo 1000
     
     def generate_alpha_heavy_wordlist(self, target):
-        """Generar wordlist con énfasis en letras"""
+        """Generar wordlist con énfasis en letras - optimizada"""
         passwords = set()
         essid = target['essid']
         
-        # Combinaciones alfabéticas
-        import itertools
-        chars = 'abcdefghijklmnopqrstuvwxyz'
+        # Palabras comunes en español
+        common_words = [
+            'password', 'internet', 'network', 'wireless', 'connection',
+            'familia', 'casa', 'hogar', 'oficina', 'trabajo',
+            'colombia', 'bogota', 'medellin', 'cali', 'america',
+            'personal', 'privado', 'seguro', 'acceso', 'usuario'
+        ]
         
-        for length in [8, 9, 10]:
-            for combo in itertools.product(chars, repeat=length):
-                if len(passwords) >= 2000:
-                    break
-                password = ''.join(combo)
-                if essid.lower() in password:
-                    passwords.add(password)
+        # Generar combinaciones con el ESSID
+        for word in common_words:
+            if len(word) >= 8:
+                passwords.add(word)
+            
+            # Combinaciones con ESSID
+            for combo in [f"{word}{essid.lower()}", f"{essid.lower()}{word}"]:
+                if 8 <= len(combo) <= 63:
+                    passwords.add(combo)
+                    passwords.add(combo.capitalize())
         
-        return list(passwords)
+        # Secuencias alfabéticas comunes
+        sequences = [
+            'abcdefgh', 'qwertyui', 'asdfghjk', 'zxcvbnma',
+            'alphabet', 'keyboard', 'sequence', 'standard'
+        ]
+        passwords.update(seq for seq in sequences if len(seq) >= 8)
+        
+        return list(passwords)[:800]  # Máximo 800
     
     def generate_mixed_pattern_wordlist(self, target):
         """Generar patrones mixtos alfanuméricos"""
