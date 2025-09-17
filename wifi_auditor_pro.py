@@ -19,6 +19,7 @@ import sys
 import threading
 import re
 import random
+import itertools
 
 class Colors:
     """Colores para la salida del terminal"""
