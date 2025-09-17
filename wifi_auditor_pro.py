@@ -7,15 +7,16 @@ Versión: 2.0
 """
 
 import os
-import sys
-import time
-import json
-import signal
 import subprocess
-import threading
-import argparse
+import time
+import signal
+import re
+import json
 from datetime import datetime
 from pathlib import Path
+import argparse
+import sys
+import threading
 import re
 import random
 
@@ -31,6 +32,60 @@ class Colors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
     END = '\033[0m'
+
+class ProgressBar:
+    """Barra de progreso profesional para mostrar avance en tiempo real"""
+    
+    def __init__(self, total, prefix='', suffix='', length=50):
+        self.total = total
+        self.prefix = prefix
+        self.suffix = suffix
+        self.length = length
+        self.current = 0
+        self.start_time = time.time()
+        self._last_update = 0
+        
+    def update(self, current, custom_suffix=None):
+        """Actualizar la barra de progreso"""
+        self.current = current
+        
+        # Evitar actualizaciones muy frecuentes
+        if time.time() - self._last_update < 0.1 and current != self.total:
+            return
+            
+        percent = min(100.0 * current / self.total, 100.0)
+        filled_length = int(self.length * current // self.total)
+        bar = '█' * filled_length + '▒' * (self.length - filled_length)
+        
+        # Calcular tiempo estimado
+        elapsed = time.time() - self.start_time
+        if current > 0 and current < self.total:
+            eta = elapsed * (self.total - current) / current
+            eta_str = f"ETA: {int(eta//60)}:{int(eta%60):02d}"
+        elif current >= self.total:
+            total_time = elapsed
+            eta_str = f"Tiempo: {int(total_time//60)}:{int(total_time%60):02d}"
+        else:
+            eta_str = "ETA: --:--"
+            
+        suffix = custom_suffix if custom_suffix else self.suffix
+        
+        # Limpiar línea y mostrar progreso
+        sys.stdout.write('\r\033[K')  # Limpiar línea
+        sys.stdout.write(f'{Colors.CYAN}{self.prefix}{Colors.END} |{Colors.GREEN}{bar}{Colors.END}| '
+                        f'{Colors.BOLD}{percent:5.1f}%{Colors.END} {suffix} {Colors.YELLOW}({eta_str}){Colors.END}')
+        sys.stdout.flush()
+        
+        self._last_update = time.time()
+        
+    def finish(self, success_message="Completado"):
+        """Terminar la barra de progreso"""
+        self.update(self.total, success_message)
+        print()  # Nueva línea
+        
+    def increment(self, amount=1, custom_suffix=None):
+        """Incrementar el progreso"""
+        self.update(self.current + amount, custom_suffix)
 
 class WiFiAuditor:
     def __init__(self):
@@ -605,8 +660,28 @@ class WiFiAuditor:
         # Iniciar proceso
         process = subprocess.Popen(command, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        # Esperar tiempo especificado
-        time.sleep(scan_time)
+        # Inicializar barra de progreso para el escaneo
+        progress_bar = ProgressBar(
+            total=scan_time,
+            prefix="ESCANEO WiFi",
+            suffix="Buscando redes y clientes...",
+            length=40
+        )
+        
+        # Esperar tiempo especificado con progreso visual
+        for second in range(scan_time + 1):
+            if not self.running:
+                process.terminate()
+                progress_bar.finish("Escaneo interrumpido")
+                return False
+                
+            progress_bar.update(
+                second,
+                f"Escaneando... Tiempo restante: {scan_time - second}s"
+            )
+            time.sleep(1)
+        
+        progress_bar.finish("Escaneo completado")
         
         # Detener proceso
         process.terminate()
@@ -2006,11 +2081,24 @@ class WiFiAuditor:
                 (40, 15, "intenso"), # 40 paquetes, esperar 15s
             ]
             
+            # Inicializar barra de progreso para deauth
+            deauth_progress = ProgressBar(
+                total=len(deauth_rounds),
+                prefix="CAPTURA Handshake",
+                suffix="Aplicando ataques deauth...",
+                length=40
+            )
+            
             for round_num, (packets, wait_time, intensity) in enumerate(deauth_rounds, 1):
                 if not self.running or handshake_found:
+                    deauth_progress.finish("Interrumpido" if not self.running else "Handshake encontrado")
                     break
                 
-                self.log(f"Ronda {round_num}: {packets} paquetes ({intensity})", "INFO")
+                # Actualizar progreso
+                deauth_progress.update(
+                    round_num,
+                    f"Ronda {round_num}/{len(deauth_rounds)}: {packets} paquetes ({intensity})"
+                )
                 
                 # Combinar ataques broadcast y dirigidos
                 # Ataque broadcast
@@ -2025,13 +2113,32 @@ class WiFiAuditor:
                         subprocess.run(deauth_targeted, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         time.sleep(1)
                 
-                self.log(f"Esperando {wait_time}s para reconexiones...", "INFO")
-                time.sleep(wait_time)
+                # Espera con progreso visual
+                wait_progress = ProgressBar(
+                    total=wait_time,
+                    prefix=f"    Esperando reconexiones",
+                    suffix="segundos",
+                    length=25
+                )
+                
+                for second in range(wait_time + 1):
+                    if not self.running:
+                        wait_progress.finish("Interrumpido")
+                        break
+                    wait_progress.update(second, f"Tiempo restante: {wait_time - second}s")
+                    time.sleep(1)
+                
+                if self.running:
+                    wait_progress.finish("Verificando handshake...")
                 
                 # Verificación de handshake más robusta
                 if self.verify_handshake_comprehensive(cap_file):
                     handshake_found = True
+                    deauth_progress.finish("HANDSHAKE CAPTURADO!")
                     break
+                    
+            if not handshake_found:
+                deauth_progress.finish("Ataques deauth completados")
         
         # PASO 4: Captura extendida final si es necesario
         if not handshake_found:
@@ -2449,25 +2556,40 @@ class WiFiAuditor:
         batch_size = 1000
         total_batches = (len(massive_passwords) + batch_size - 1) // batch_size
         
+        # Inicializar barra de progreso
+        progress_bar = ProgressBar(
+            total=total_batches,
+            prefix="FASE 2 [Arsenal Masivo]",
+            suffix=f"0/{total_batches} lotes | 0/{len(massive_passwords)} contraseñas",
+            length=40
+        )
+        
         for batch_num in range(total_batches):
             if not self.running:
+                progress_bar.finish("Interrumpido por usuario")
                 break
                 
             start_idx = batch_num * batch_size
             end_idx = min(start_idx + batch_size, len(massive_passwords))
             batch = massive_passwords[start_idx:end_idx]
             
-            self.log(f"Probando lote {batch_num + 1}/{total_batches} ({len(batch)} contraseñas)...", "INFO")
+            # Actualizar barra de progreso
+            tested_so_far = (batch_num + 1) * batch_size
+            progress_bar.update(
+                batch_num + 1, 
+                f"{batch_num + 1}/{total_batches} lotes | {min(tested_so_far, len(massive_passwords))}/{len(massive_passwords)} contraseñas"
+            )
             
             # Probar lote con análisis de respuesta
             password = self.test_password_batch_with_analysis(target, handshake_file, batch, f"lote_{batch_num + 1}")
             if password:
+                progress_bar.finish(f"CONTRASEÑA ENCONTRADA: {password}")
                 return password
             
             # Actualizar estadísticas
             self.crack_stats['attempted_passwords'] += len(batch)
         
-        self.log(f"Arsenal masivo completado. Total probadas: {self.crack_stats['attempted_passwords']}", "INFO")
+        progress_bar.finish(f"Arsenal completado - {self.crack_stats['attempted_passwords']} contraseñas probadas")
         return None
     
     def generate_massive_wordlist(self, target):
@@ -2774,9 +2896,22 @@ class WiFiAuditor:
         generation = 0
         max_generations = 10
         
+        # Inicializar barra de progreso
+        progress_bar = ProgressBar(
+            total=max_generations,
+            prefix="FASE 5 [Evolutivo]",
+            suffix=f"0/{max_generations} generaciones | Población: {len(population)}",
+            length=30
+        )
+        
         while generation < max_generations and self.running:
             generation += 1
-            self.log(f"Generación evolutiva {generation}/{max_generations}", "INFO")
+            
+            # Actualizar barra de progreso
+            progress_bar.update(
+                generation, 
+                f"{generation}/{max_generations} generaciones | Población: {len(population)}"
+            )
             
             # Evaluar población actual
             fitness_scores = self.evaluate_population_fitness(population, target)
@@ -2788,11 +2923,13 @@ class WiFiAuditor:
                 target, handshake_file, best_candidates, f"evolutionary_gen_{generation}"
             )
             if password:
+                progress_bar.finish(f"CONTRASEÑA ENCONTRADA: {password}")
                 return password
             
             # Evolucionar población
             population = self.evolve_population(population, fitness_scores, target)
         
+        progress_bar.finish(f"Evolución completada - {max_generations} generaciones")
         return None
     
     def parallel_massive_attack(self, target, handshake_file):
@@ -2808,23 +2945,46 @@ class WiFiAuditor:
             'keyboard_patterns': self.generate_keyboard_wordlist(target)
         }
         
+        # Calcular total de lotes
+        total_batches = 0
+        for wordlist in wordlists.values():
+            total_batches += (len(wordlist) + 1999) // 2000  # Redondear hacia arriba
+        
+        # Inicializar barra de progreso
+        progress_bar = ProgressBar(
+            total=total_batches,
+            prefix="FASE 6 [Paralelo Masivo]",
+            suffix=f"0/{total_batches} lotes | 5 wordlists especializadas",
+            length=40
+        )
+        
+        batch_count = 0
+        
         # Ejecutar en paralelo (simulado secuencialmente por simplicidad)
         for name, wordlist in wordlists.items():
             if not self.running:
+                progress_bar.finish("Interrumpido por usuario")
                 break
-                
-            self.log(f"Probando wordlist {name} ({len(wordlist)} contraseñas)...", "INFO")
             
             # Dividir en lotes grandes para eficiencia
             for i in range(0, len(wordlist), 2000):
+                batch_count += 1
                 batch = wordlist[i:i+2000]
+                
+                # Actualizar barra de progreso
+                progress_bar.update(
+                    batch_count, 
+                    f"{batch_count}/{total_batches} lotes | Wordlist: {name} ({len(batch)} contraseñas)"
+                )
+                
                 password = self.test_password_batch_with_analysis(
                     target, handshake_file, batch, f"{name}_{i//2000 + 1}"
                 )
                 if password:
+                    progress_bar.finish(f"CONTRASEÑA ENCONTRADA: {password}")
                     return password
         
-        self.log("Ataque paralelo masivo completado sin éxito", "WARNING")
+        progress_bar.finish("Ataque paralelo masivo completado")
         return None
     
     def load_learned_patterns(self):
@@ -4038,34 +4198,46 @@ class WiFiAuditor:
         
         max_batches = max_batches_per_phase.get(phase_name, 100)
         
+        # Inicializar barra de progreso
+        progress_bar = ProgressBar(
+            total=max_batches,
+            prefix=f"CERRAJERO [{phase_name}]",
+            suffix=f"0/{max_batches} lotes | 0 contraseñas",
+            length=40
+        )
+        
         try:
             while batch_count < max_batches and self.running:
                 try:
                     batch = list(itertools.islice(password_generator, batch_size))
                     if not batch:
+                        progress_bar.finish(f"Sin más contraseñas - {batch_count} lotes completados")
                         break
                         
                     batch_count += 1
+                    total_tested = batch_count * batch_size
                     
-                    # Mostrar progreso cada 5 lotes para no saturar los logs
-                    if batch_count % 5 == 0 or batch_count <= 3:
-                        self.log(f"Cerrajero trabajando en lote {batch_count}/{max_batches} ({len(batch)} intentos)", "INFO")
+                    # Actualizar barra de progreso
+                    progress_bar.update(
+                        batch_count, 
+                        f"{batch_count}/{max_batches} lotes | {total_tested:,} contraseñas probadas"
+                    )
                     
                     # Probar lote actual
                     password = self._test_lockpicker_batch(target, handshake_file, batch, f"{phase_name}_lote_{batch_count}")
                     if password:
+                        progress_bar.finish(f"CONTRASEÑA ENCONTRADA: {password}")
                         return password
-                    
-                    # Mostrar progreso total cada 10 lotes
-                    if batch_count % 10 == 0:
-                        total_tested = batch_count * batch_size
-                        self.log(f"Total probadas en {phase_name}: {total_tested:,} contraseñas", "INFO")
                         
                 except Exception as batch_error:
                     self.log(f"Error en lote {batch_count}: {batch_error}", "WARNING")
                     continue
             
+            # Terminar barra de progreso si se completa sin éxito
+            progress_bar.finish(f"Fase completada - {total_tested:,} contraseñas probadas")
+            
         except Exception as e:
+            progress_bar.finish(f"Error en fase: {str(e)}")
             self.log(f"Error en cerrajería paralela {phase_name}: {e}", "WARNING")
         
         return None
