@@ -2539,7 +2539,13 @@ class WiFiAuditor:
             
         # FASE 7: CERRAJERO DIGITAL - Máximo uso de RAM
         self.log("FASE 7: CERRAJERO DIGITAL - Usando toda la RAM disponible...", "WARNING")
-        return self.digital_lockpicker_ram_max(target, handshake_file)
+        password = self.digital_lockpicker_ram_max(target, handshake_file)
+        if password:
+            return password
+            
+        # FASE 8: CERRAJERO PROGRESIVO - Análisis posicional
+        self.log("FASE 8: CERRAJERO PROGRESIVO - Ataque por posiciones como cerrajero experto...", "WARNING")
+        return self.progressive_lockpicker(target, handshake_file)
     
     def massive_password_generation_attack(self, target, handshake_file):
         """Generar y probar miles de contraseñas inteligentemente"""
@@ -4335,6 +4341,407 @@ class WiFiAuditor:
             
         except Exception as e:
             self.log(f"Error en lote {batch_name}: {e}", "WARNING")
+        finally:
+            # Limpiar archivo temporal
+            try:
+                os.remove(temp_file)
+            except:
+                pass
+        
+        return None
+    
+    def progressive_lockpicker(self, target, handshake_file):
+        """FASE 8: Cerrajero Progresivo - Ataque por posiciones como un cerrajero experto"""
+        self.log("=== CERRAJERO PROGRESIVO ACTIVADO ===", "WARNING")
+        self.log("Analizando contraseña posición por posición como cerrajero experto", "INFO")
+        
+        essid = target['essid']
+        
+        # Análisis de patrones probables por posición
+        password_patterns = self._analyze_probable_patterns(target)
+        
+        # TÉCNICA 1: Ataque por prefijos incrementales (primeros 2, 3, 4... dígitos)
+        password = self._incremental_prefix_attack(target, handshake_file, password_patterns)
+        if password:
+            return password
+            
+        # TÉCNICA 2: Análisis por longitudes específicas con fuerza bruta dirigida
+        password = self._length_focused_brute_force(target, handshake_file)
+        if password:
+            return password
+            
+        # TÉCNICA 3: Ataque híbrido por posiciones conocidas
+        password = self._hybrid_position_attack(target, handshake_file, password_patterns)
+        if password:
+            return password
+            
+        # TÉCNICA 4: Último recurso - Fuerza bruta completa por caracteres
+        password = self._complete_character_brute_force(target, handshake_file)
+        if password:
+            return password
+        
+        self.log("Cerrajero progresivo agotó todas las técnicas", "WARNING")
+        return None
+    
+    def _analyze_probable_patterns(self, target):
+        """Analizar patrones más probables basados en el ESSID y estadísticas"""
+        essid = target['essid']
+        patterns = {
+            'probable_prefixes': [],
+            'probable_suffixes': [],
+            'probable_lengths': [],
+            'character_sets': []
+        }
+        
+        # Prefijos probables basados en ESSID
+        essid_clean = essid.replace(' ', '').replace('-', '').replace('_', '')
+        patterns['probable_prefixes'] = [
+            essid_clean.lower()[:4],
+            essid_clean.upper()[:4], 
+            essid_clean.capitalize()[:4],
+            essid_clean[:3],
+            essid_clean[:2]
+        ]
+        
+        # Sufijos más comunes estadísticamente
+        patterns['probable_suffixes'] = [
+            '123', '1234', '12345', '123456',
+            '2024', '2023', '2022', '2021', '2020',
+            '01', '02', '03', '10', '11', '99',
+            '00', '007', '777', '666', '888'
+        ]
+        
+        # Longitudes más probables (estadísticas reales)
+        patterns['probable_lengths'] = [8, 10, 12, 9, 11, 13, 14, 15, 16]
+        
+        # Conjuntos de caracteres por probabilidad
+        patterns['character_sets'] = [
+            'abcdefghijklmnopqrstuvwxyz0123456789',  # Solo minúsculas + números
+            'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',  # Solo mayúsculas + números  
+            'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',  # Mixto
+            '0123456789',  # Solo números
+            'abcdefghijklmnopqrstuvwxyz',  # Solo minúsculas
+            'ABCDEFGHIJKLMNOPQRSTUVWXYZ'   # Solo mayúsculas
+        ]
+        
+        return patterns
+    
+    def _incremental_prefix_attack(self, target, handshake_file, patterns):
+        """Ataque incremental: encontrar primeros 2, 3, 4... caracteres progresivamente"""
+        self.log("TÉCNICA 1: Ataque incremental por prefijos", "INFO")
+        
+        essid = target['essid']
+        
+        # Inicializar barra de progreso para prefijos
+        progress_bar = ProgressBar(
+            total=len(patterns['probable_prefixes']) * 4,  # 4 longitudes diferentes
+            prefix="CERRAJERO [Prefijos]",
+            suffix="Analizando prefijos probables...",
+            length=40
+        )
+        
+        step = 0
+        
+        # Probar cada prefijo probable con diferentes longitudes
+        for prefix in patterns['probable_prefixes']:
+            if not self.running:
+                progress_bar.finish("Interrumpido")
+                break
+                
+            # Probar con longitudes incrementales: 8, 10, 12, 14
+            for target_length in [8, 10, 12, 14]:
+                step += 1
+                if len(prefix) >= target_length:
+                    continue
+                    
+                progress_bar.update(
+                    step,
+                    f"Prefijo '{prefix}' longitud {target_length} | Generando combinaciones..."
+                )
+                
+                # Generar todas las combinaciones posibles para esta longitud
+                remaining_length = target_length - len(prefix)
+                
+                if remaining_length <= 6:  # Solo si es manejable
+                    passwords = self._generate_prefix_combinations(prefix, remaining_length, patterns['character_sets'][0])
+                    
+                    # Probar este conjunto de contraseñas
+                    password = self._test_progressive_batch(
+                        target, handshake_file, passwords, 
+                        f"prefix_{prefix}_{target_length}", timeout=60
+                    )
+                    if password:
+                        progress_bar.finish(f"CONTRASEÑA ENCONTRADA: {password}")
+                        return password
+        
+        progress_bar.finish("Análisis de prefijos completado")
+        return None
+    
+    def _generate_prefix_combinations(self, prefix, remaining_length, charset):
+        """Generar combinaciones para un prefijo específico"""
+        import itertools
+        
+        passwords = []
+        
+        # Limitar combinaciones para evitar explosión combinatoria
+        max_combinations = 50000  # Máximo 50K por prefijo
+        
+        count = 0
+        for combination in itertools.product(charset, repeat=remaining_length):
+            if count >= max_combinations:
+                break
+                
+            suffix = ''.join(combination)
+            password = prefix + suffix
+            
+            if 8 <= len(password) <= 63:
+                passwords.append(password)
+                count += 1
+        
+        return passwords
+    
+    def _length_focused_brute_force(self, target, handshake_file):
+        """Fuerza bruta dirigida por longitudes específicas"""
+        self.log("TÉCNICA 2: Fuerza bruta dirigida por longitudes", "INFO")
+        
+        # Longitudes más probables en orden de probabilidad
+        probable_lengths = [8, 10, 12, 9, 11]
+        
+        progress_bar = ProgressBar(
+            total=len(probable_lengths),
+            prefix="CERRAJERO [Longitudes]",
+            suffix="Analizando longitudes probables...",
+            length=40
+        )
+        
+        for i, length in enumerate(probable_lengths, 1):
+            if not self.running:
+                progress_bar.finish("Interrumpido")
+                break
+                
+            progress_bar.update(
+                i,
+                f"Longitud {length} caracteres | Generando combinaciones inteligentes..."
+            )
+            
+            # Generar contraseñas inteligentes para esta longitud específica
+            passwords = self._generate_smart_length_passwords(target, length)
+            
+            if passwords:
+                password = self._test_progressive_batch(
+                    target, handshake_file, passwords[:10000],  # Máximo 10K por longitud
+                    f"length_{length}", timeout=45
+                )
+                if password:
+                    progress_bar.finish(f"CONTRASEÑA ENCONTRADA: {password}")
+                    return password
+        
+        progress_bar.finish("Análisis por longitudes completado")
+        return None
+    
+    def _generate_smart_length_passwords(self, target, target_length):
+        """Generar contraseñas inteligentes para una longitud específica"""
+        import random
+        import string
+        
+        essid = target['essid']
+        passwords = set()
+        
+        # Estrategia 1: ESSID + números hasta completar longitud
+        essid_variations = [
+            essid.replace(' ', '').replace('-', '').replace('_', ''),
+            essid.replace(' ', '').replace('-', '').replace('_', '').lower(),
+            essid.replace(' ', '').replace('-', '').replace('_', '').upper(),
+            essid.replace(' ', '').replace('-', '').replace('_', '').capitalize()
+        ]
+        
+        for essid_var in essid_variations:
+            if len(essid_var) < target_length:
+                needed = target_length - len(essid_var)
+                
+                # Completar con números comunes
+                for i in range(10 ** min(needed, 4)):  # Máximo 4 dígitos
+                    suffix = f"{i:0{needed}d}" if needed <= 4 else f"{i:04d}"
+                    if len(suffix) == needed:
+                        candidate = essid_var + suffix
+                        if len(candidate) == target_length:
+                            passwords.add(candidate)
+                    
+                    if len(passwords) >= 5000:  # Limitar por variación
+                        break
+        
+        # Estrategia 2: Patrones completamente numéricos
+        if target_length >= 8:
+            for i in range(10 ** min(target_length - 1, 6), 10 ** min(target_length, 7), max(1, 10 ** (target_length - 3))):
+                num_str = str(i).zfill(target_length)
+                if len(num_str) == target_length:
+                    passwords.add(num_str)
+                    
+                if len(passwords) >= 8000:
+                    break
+        
+        return list(passwords)[:10000]
+    
+    def _hybrid_position_attack(self, target, handshake_file, patterns):
+        """Ataque híbrido por posiciones conocidas"""
+        self.log("TÉCNICA 3: Ataque híbrido por posiciones conocidas", "INFO")
+        
+        essid = target['essid']
+        
+        # Combinar prefijos y sufijos probables
+        combinations = []
+        
+        for prefix in patterns['probable_prefixes'][:5]:  # Solo los 5 más probables
+            for suffix in patterns['probable_suffixes'][:10]:  # Solo los 10 más probables
+                candidate = prefix + suffix
+                if 8 <= len(candidate) <= 16:
+                    combinations.append(candidate)
+                    
+                # Variaciones con mayúsculas/minúsculas
+                combinations.extend([
+                    candidate.upper(),
+                    candidate.lower(), 
+                    candidate.capitalize(),
+                    prefix.upper() + suffix.lower(),
+                    prefix.lower() + suffix.upper()
+                ])
+        
+        # Filtrar duplicados y longitudes válidas
+        unique_combinations = list(set(c for c in combinations if 8 <= len(c) <= 63))
+        
+        if unique_combinations:
+            progress_bar = ProgressBar(
+                total=len(unique_combinations) // 1000 + 1,
+                prefix="CERRAJERO [Híbrido]",
+                suffix="Probando combinaciones híbridas...",
+                length=40
+            )
+            
+            # Probar en lotes de 1000
+            for i in range(0, len(unique_combinations), 1000):
+                if not self.running:
+                    progress_bar.finish("Interrumpido")
+                    break
+                    
+                batch = unique_combinations[i:i+1000]
+                batch_num = i // 1000 + 1
+                
+                progress_bar.update(
+                    batch_num,
+                    f"Lote {batch_num} | {len(batch)} combinaciones híbridas"
+                )
+                
+                password = self._test_progressive_batch(
+                    target, handshake_file, batch, f"hybrid_{batch_num}", timeout=30
+                )
+                if password:
+                    progress_bar.finish(f"CONTRASEÑA ENCONTRADA: {password}")
+                    return password
+            
+            progress_bar.finish("Ataque híbrido completado")
+        
+        return None
+    
+    def _complete_character_brute_force(self, target, handshake_file):
+        """Último recurso: Fuerza bruta completa por caracteres (limitada)"""
+        self.log("TÉCNICA 4: Fuerza bruta completa por caracteres (último recurso)", "WARNING")
+        
+        import string
+        import itertools
+        
+        # Solo caracteres más comunes para evitar explosión combinatoria
+        common_chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+        
+        # Solo longitudes muy probables
+        for length in [8, 9, 10]:
+            self.log(f"Fuerza bruta longitud {length} - esto puede tomar mucho tiempo", "WARNING")
+            
+            progress_bar = ProgressBar(
+                total=100,  # Dividir en 100 segmentos para mostrar progreso
+                prefix=f"CERRAJERO [Bruta-{length}]",
+                suffix=f"Longitud {length} caracteres...",
+                length=40
+            )
+            
+            # Dividir el espacio de búsqueda en segmentos
+            segment_size = len(common_chars) ** min(length, 4) // 100
+            
+            count = 0
+            batch = []
+            
+            for combination in itertools.product(common_chars, repeat=length):
+                if not self.running:
+                    progress_bar.finish("Interrumpido")
+                    return None
+                    
+                password = ''.join(combination)
+                batch.append(password)
+                count += 1
+                
+                # Probar cada 1000 contraseñas
+                if len(batch) >= 1000:
+                    segment = (count // segment_size) % 100
+                    progress_bar.update(
+                        min(segment, 99),
+                        f"Probadas {count:,} combinaciones | Actual: {password[:4]}..."
+                    )
+                    
+                    result = self._test_progressive_batch(
+                        target, handshake_file, batch, f"brute_{length}_{count//1000}", timeout=20
+                    )
+                    if result:
+                        progress_bar.finish(f"CONTRASEÑA ENCONTRADA: {result}")
+                        return result
+                    
+                    batch = []
+                    
+                # Límite de seguridad: máximo 100K combinaciones por longitud
+                if count >= 100000:
+                    break
+            
+            # Probar último lote si queda algo
+            if batch:
+                result = self._test_progressive_batch(
+                    target, handshake_file, batch, f"brute_{length}_final", timeout=20
+                )
+                if result:
+                    progress_bar.finish(f"CONTRASEÑA ENCONTRADA: {result}")
+                    return result
+            
+            progress_bar.finish(f"Longitud {length} completada sin éxito")
+        
+        return None
+    
+    def _test_progressive_batch(self, target, handshake_file, passwords, batch_name, timeout=60):
+        """Probar un lote de contraseñas del cerrajero progresivo"""
+        if not passwords:
+            return None
+        
+        # Crear archivo temporal optimizado
+        temp_file = f"/tmp/progressive_{batch_name}_{int(time.time())}.txt"
+        
+        try:
+            with open(temp_file, 'w', buffering=8192) as f:
+                for pwd in passwords:
+                    if isinstance(pwd, str) and 8 <= len(pwd) <= 63:
+                        f.write(pwd + '\n')
+            
+            # Ejecutar aircrack-ng con timeout ajustado
+            crack_cmd = f"aircrack-ng -w {temp_file} {handshake_file}"
+            success, output, error = self.run_command(crack_cmd, timeout=timeout)
+            
+            if success and "KEY FOUND" in output:
+                # Extraer contraseña exitosa
+                import re
+                key_pattern = r'KEY FOUND! \[\s*(.+?)\s*\]'
+                match = re.search(key_pattern, output)
+                if match:
+                    password = match.group(1).strip()
+                    self.log(f"CERRAJERO PROGRESIVO EXITOSO: {password}", "SUCCESS")
+                    return password
+            
+        except Exception as e:
+            self.log(f"Error en lote progresivo {batch_name}: {e}", "WARNING")
         finally:
             # Limpiar archivo temporal
             try:
