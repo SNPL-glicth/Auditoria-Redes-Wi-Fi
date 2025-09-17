@@ -1,0 +1,11 @@
+{
+    "essid": "Mi Red WiFi 2024",
+    "bssid": "00:1A:2B:3C:4D:5E",
+    "first_seen": "2025-09-16T20:43:54.146514",
+    "last_attack": null,
+    "total_passwords_tried": 0,
+    "attack_sessions": 0,
+    "phases_completed": [],
+    "successful_password": null,
+    "crack_date": null
+}

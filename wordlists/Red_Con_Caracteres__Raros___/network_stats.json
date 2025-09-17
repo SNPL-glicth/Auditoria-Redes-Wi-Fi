@@ -1,0 +1,11 @@
+{
+    "essid": "Red/Con\\Caracteres<>Raros:*?",
+    "bssid": "AA:BB:CC:DD:EE:FF",
+    "first_seen": "2025-09-16T20:43:54.147713",
+    "last_attack": null,
+    "total_passwords_tried": 0,
+    "attack_sessions": 0,
+    "phases_completed": [],
+    "successful_password": null,
+    "crack_date": null
+}

